@@ -1,0 +1,41 @@
+Prayer artwork: cropped from the screenshot supplied by the user.
+Original screenshot: pasted_image_1_1793105470438.png (739 x 1600 pixels).
+Each crop is 167 x 167 pixels; no labels or application chrome are included.
+The screenshot identifies its source application as "Coptic Agpeya".
+The original artists and artwork licenses were not provided or verified.
+These images are not claimed to be public domain or Apache-licensed.
+Confirm redistribution rights before publishing the application.
+
+Crop coordinates (x, y):
+prayer_resurrection.png: 66, 255
+prayer_pentecost.png: 286, 255
+prayer_crucifixion.png: 506, 255
+prayer_ninth_hour.png: 66, 530
+prayer_descent.png: 286, 530
+prayer_entombment.png: 506, 530
+prayer_veil.png: 66, 805
+prayer_midnight_icon.png: 286, 805
+prayer_other.png: 506, 805
+prayer_deacons.png: 66, 1080
+prayer_priests.png: 286, 1080
+
+The three midnight services share prayer_midnight_icon.png.
+Additional extracted images are retained for their corresponding categories;
+no unsupported prayer categories have been added to the application.
+
+Settings icon and previous time-of-day artwork: Google Material Design Icons
+https://github.com/google/material-design-icons
+License: Apache License, Version 2.0 (see material-icons-LICENSE.txt).
+
+Source SVGs:
+https://raw.githubusercontent.com/google/material-design-icons/master/src/image/wb_sunny/materialicons/24px.svg
+https://raw.githubusercontent.com/google/material-design-icons/master/src/image/brightness_5/materialicons/24px.svg
+https://raw.githubusercontent.com/google/material-design-icons/master/src/image/brightness_6/materialicons/24px.svg
+https://raw.githubusercontent.com/google/material-design-icons/master/src/image/wb_twilight/materialicons/24px.svg
+https://raw.githubusercontent.com/google/material-design-icons/master/src/image/brightness_3/materialicons/24px.svg
+https://raw.githubusercontent.com/google/material-design-icons/master/src/image/brightness_4/materialicons/24px.svg
+https://raw.githubusercontent.com/google/material-design-icons/master/src/action/settings/materialicons/24px.svg
+
+Modified for this app: converted to Android vector drawables and colored.
+Twilight rectangles use equivalent Android paths and rotation groups.
+ic_menu.xml is a simple app-created menu image.
