@@ -32,6 +32,7 @@ object PsalmSelector {
                 psalms[(preference.sequentialOffset + index) % psalms.size]
             }
             PsalmMode.FIXED -> psalms.filter { it.key in preference.fixedPsalmKeys }
+            PsalmMode.ALL -> psalms
         }
         val nextOffset = if (preference.psalmMode == PsalmMode.SEQUENTIAL) {
             (preference.sequentialOffset + count) % psalms.size

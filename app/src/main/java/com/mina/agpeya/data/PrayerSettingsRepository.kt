@@ -16,6 +16,7 @@ enum class PsalmMode {
     RANDOM,
     SEQUENTIAL,
     FIXED,
+    ALL,
 }
 
 data class PrayerPreference(
@@ -44,7 +45,7 @@ class PrayerSettingsRepository(context: Context) {
                     .coerceIn(0f, 1f),
                 psalmMode = preferences[stringPreferencesKey("${id}_psalm_mode")]
                     ?.let { stored -> PsalmMode.entries.firstOrNull { it.name == stored } }
-                    ?: PsalmMode.RANDOM,
+                    ?: PsalmMode.ALL,
                 psalmCount = (preferences[intPreferencesKey("${id}_psalm_count")] ?: 5)
                     .coerceAtLeast(1),
                 fixedPsalmKeys = preferences[stringPreferencesKey("${id}_fixed_psalms")]

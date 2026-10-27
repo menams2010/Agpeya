@@ -108,6 +108,7 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
     var pendingPrayer by rememberSaveable { mutableStateOf(initialPrayerKey) }
     var pendingSoundPrayer by rememberSaveable { mutableStateOf<String?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val sectionsDrawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -149,6 +150,9 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
             viewModel.clearError()
         }
     }
+    LaunchedEffect(reading?.prayer?.key) {
+        sectionsDrawerState.close()
+    }
 
     BackHandler(enabled = reading != null || selectedTab != 0) {
         viewModel.closeReading()
@@ -156,103 +160,119 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
         settingsPrayer = null
     }
 
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
-                PrayerNavigationDrawer(
-                    prayerGroups = groups,
-                    selectedPrayerKey = reading?.prayer?.key,
-                    onOpenPrayer = { prayerKey ->
-                        scope.launch { drawerState.close() }
-                        viewModel.openPrayer(prayerKey)
-                    },
-                )
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    PrayerNavigationDrawer(
+                        prayerGroups = groups,
+                        selectedPrayerKey = reading?.prayer?.key,
+                        onOpenPrayer = { prayerKey ->
+                            scope.launch { drawerState.close() }
+                            viewModel.openPrayer(prayerKey)
+                        },
+                    )
+                }
             },
         ) {
-            Scaffold(
-                topBar = {
-                    TopAppBar(
-                        title = { Text(reading?.prayer?.title ?: "الأجبية") },
-                        navigationIcon = {
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(
-                                    painterResource(R.drawable.ic_menu),
-                                    contentDescription = "قائمة الصلوات",
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = { Text(reading?.prayer?.title ?: "الأجبية") },
+                            navigationIcon = {
+                                if (reading != null) {
+                                    IconButton(onClick = { scope.launch { sectionsDrawerState.open() } }) {
+                                        Icon(
+                                            painterResource(R.drawable.ic_menu),
+                                            contentDescription = "أجزاء الصلاة",
+                                        )
+                                    }
+                                }
+                            },
+                            actions = {
+                                if (reading != null) {
+                                    TextButton(onClick = viewModel::closeReading) {
+                                        Text("رجوع")
+                                    }
+                                }
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_menu),
+                                        contentDescription = "قائمة الصلوات",
+                                    )
+                                }
+                            },
+                        )
+                    },
+                    bottomBar = {
+                        if (reading == null) {
+                            NavigationBar {
+                                NavigationBarItem(
+                                    selected = selectedTab == 0,
+                                    onClick = { selectedTab = 0 },
+                                    icon = { Text("☼") },
+                                    label = { Text("الصلوات") },
+                                )
+                                NavigationBarItem(
+                                    selected = selectedTab == 1,
+                                    onClick = {
+                                        settingsPrayer = null
+                                        selectedTab = 1
+                                    },
+                                    icon = { Text("⚙") },
+                                    label = { Text("الإعدادات") },
                                 )
                             }
-                        },
-                        actions = {
-                            if (reading != null) {
-                                TextButton(onClick = viewModel::closeReading) {
-                                    Text("رجوع")
-                                }
-                            }
-                        },
-                    )
-                },
-                bottomBar = {
-                    if (reading == null) {
-                        NavigationBar {
-                            NavigationBarItem(
-                                selected = selectedTab == 0,
-                                onClick = { selectedTab = 0 },
-                                icon = { Text("☼") },
-                                label = { Text("الصلوات") },
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 1,
-                                onClick = {
-                                    settingsPrayer = null
-                                    selectedTab = 1
-                                },
-                                icon = { Text("⚙") },
-                                label = { Text("الإعدادات") },
-                            )
                         }
+                    },
+                    snackbarHost = { SnackbarHost(snackbars) },
+                ) { padding ->
+                    when {
+                        reading != null -> ReadingScreen(
+                            reading!!,
+                            sectionsDrawerState,
+                            Modifier.padding(padding),
+                        )
+                        selectedTab == 0 -> HomeScreen(
+                            onOpenPrayer = viewModel::openPrayer,
+                            onPrayerSettings = { prayerKey ->
+                                settingsPrayer = prayerKey
+                                selectedTab = 1
+                            },
+                            modifier = Modifier.padding(padding),
+                        )
+                        else -> SettingsScreen(
+                            settings = settings,
+                            psalmsByPrayer = psalmsByPrayer,
+                            onAlarmEnabled = viewModel::setAlarmEnabled,
+                            onTimeChanged = viewModel::setTime,
+                            onVolumeChanged = viewModel::setVolume,
+                            onPickSound = { preference ->
+                                pendingSoundPrayer = preference.key
+                                ringtonePicker.launch(
+                                    Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "اختيار صوت التنبيه")
+                                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                        putExtra(
+                                            RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                                            preference.soundUri?.let(Uri::parse)
+                                                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+                                        )
+                                    },
+                                )
+                            },
+                            onPsalmModeChanged = viewModel::setPsalmMode,
+                            onPsalmCountChanged = viewModel::setPsalmCount,
+                            onFixedPsalmToggled = viewModel::toggleFixedPsalm,
+                            onResetPsalms = viewModel::resetPsalms,
+                            prayerKey = settingsPrayer,
+                            modifier = Modifier.padding(padding),
+                        )
                     }
-                },
-                snackbarHost = { SnackbarHost(snackbars) },
-            ) { padding ->
-                when {
-                    reading != null -> ReadingScreen(reading!!, Modifier.padding(padding))
-                    selectedTab == 0 -> HomeScreen(
-                        onOpenPrayer = viewModel::openPrayer,
-                        onPrayerSettings = { prayerKey ->
-                            settingsPrayer = prayerKey
-                            selectedTab = 1
-                        },
-                        modifier = Modifier.padding(padding),
-                    )
-                    else -> SettingsScreen(
-                        settings = settings,
-                        psalmsByPrayer = psalmsByPrayer,
-                        onAlarmEnabled = viewModel::setAlarmEnabled,
-                        onTimeChanged = viewModel::setTime,
-                        onVolumeChanged = viewModel::setVolume,
-                        onPickSound = { preference ->
-                            pendingSoundPrayer = preference.key
-                            ringtonePicker.launch(
-                                Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "اختيار صوت التنبيه")
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
-                                    putExtra(
-                                        RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
-                                        preference.soundUri?.let(Uri::parse)
-                                            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-                                    )
-                                },
-                            )
-                        },
-                        onPsalmModeChanged = viewModel::setPsalmMode,
-                        onPsalmCountChanged = viewModel::setPsalmCount,
-                        onFixedPsalmToggled = viewModel::toggleFixedPsalm,
-                        onResetPsalms = viewModel::resetPsalms,
-                        prayerKey = settingsPrayer,
-                        modifier = Modifier.padding(padding),
-                    )
                 }
             }
         }
@@ -460,6 +480,7 @@ private fun PsalmSettings(
         PsalmMode.RANDOM to "عشوائي",
         PsalmMode.SEQUENTIAL to "تتابعي",
         PsalmMode.FIXED to "ثابت",
+        PsalmMode.ALL to "جميع المزامير",
     )
     Text("طريقة اختيار المزامير", style = MaterialTheme.typography.titleSmall)
     TextButton(onClick = onResetPsalms) {
@@ -478,7 +499,9 @@ private fun PsalmSettings(
         }
     }
     if (psalms.isNotEmpty()) {
-        if (preference.psalmMode != PsalmMode.FIXED) {
+        if (preference.psalmMode == PsalmMode.RANDOM ||
+            preference.psalmMode == PsalmMode.SEQUENTIAL
+        ) {
             Text("عدد المزامير: ${countValue.toInt().coerceIn(1, psalms.size)}")
             Slider(
                 value = countValue.coerceIn(1f, psalms.size.toFloat()),

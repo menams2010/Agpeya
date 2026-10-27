@@ -18,18 +18,21 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,7 +74,7 @@ internal fun HomeScreen(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
-                Text("جميع الصلوات متاحة أيضاً من القائمة الجانبية على اليمين.")
+                Text("جميع الصلوات متاحة أيضاً من القائمة الجانبية على اليسار.")
             }
         }
         items(PrayerCatalog.canonicalPrayers, key = PrayerSpec::key) { prayer ->
@@ -162,7 +165,11 @@ internal fun PrayerNavigationDrawer(
 }
 
 @Composable
-internal fun ReadingScreen(reading: PrayerReading, modifier: Modifier = Modifier) {
+internal fun ReadingScreen(
+    reading: PrayerReading,
+    drawerState: DrawerState,
+    modifier: Modifier = Modifier,
+) {
     if (reading.sections.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("لا يوجد نص لهذه الصلاة في قاعدة البيانات")
@@ -170,76 +177,118 @@ internal fun ReadingScreen(reading: PrayerReading, modifier: Modifier = Modifier
         return
     }
     key(reading.prayer.key) {
-        PrayerReader(reading.sections, modifier)
+        PrayerReader(reading.sections, drawerState, modifier)
     }
 }
 
 @Composable
-private fun PrayerReader(sections: List<PrayerSection>, modifier: Modifier) {
+private fun PrayerReader(
+    sections: List<PrayerSection>,
+    drawerState: DrawerState,
+    modifier: Modifier,
+) {
     var paged by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val pagerState = rememberPagerState(pageCount = { sections.size })
     val scope = rememberCoroutineScope()
-    Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(
-                selected = !paged,
-                onClick = {
-                    if (paged) {
-                        scope.launch { listState.scrollToItem(pagerState.currentPage) }
-                        paged = false
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        modifier = modifier.fillMaxSize(),
+        drawerContent = {
+            ModalDrawerSheet(Modifier.widthIn(max = 340.dp)) {
+                LazyColumn(contentPadding = PaddingValues(12.dp)) {
+                    item {
+                        Text(
+                            "أجزاء الصلاة",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(16.dp),
+                        )
                     }
-                },
-                label = { Text("تمرير متصل") },
-            )
-            FilterChip(
-                selected = paged,
-                onClick = {
-                    if (!paged) {
-                        scope.launch { pagerState.scrollToPage(listState.firstVisibleItemIndex) }
-                        paged = true
+                    itemsIndexed(sections, key = { _, section -> section.id }) { index, section ->
+                        NavigationDrawerItem(
+                            label = { Text(section.title) },
+                            selected = index == if (paged) {
+                                pagerState.currentPage
+                            } else {
+                                listState.firstVisibleItemIndex
+                            },
+                            onClick = {
+                                scope.launch {
+                                    if (paged) {
+                                        pagerState.scrollToPage(index)
+                                    } else {
+                                        listState.scrollToItem(index)
+                                    }
+                                    drawerState.close()
+                                }
+                            },
+                        )
                     }
-                },
-                label = { Text("صفحة بصفحة") },
-            )
-        }
-        if (paged) {
-            HorizontalPager(
-                state = pagerState,
-                key = { sections[it].id },
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-            ) { page ->
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    PrayerSectionCard(sections[page])
                 }
             }
+        },
+    ) {
+        Column(Modifier.fillMaxSize()) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TextButton(
-                    onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } },
-                    enabled = pagerState.currentPage > 0,
-                ) { Text("السابق") }
-                Text("${pagerState.currentPage + 1} / ${sections.size}")
-                TextButton(
-                    onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } },
-                    enabled = pagerState.currentPage < sections.lastIndex,
-                ) { Text("التالي") }
+                FilterChip(
+                    selected = !paged,
+                    onClick = {
+                        if (paged) {
+                            scope.launch { listState.scrollToItem(pagerState.currentPage) }
+                            paged = false
+                        }
+                    },
+                    label = { Text("تمرير متصل") },
+                )
+                FilterChip(
+                    selected = paged,
+                    onClick = {
+                        if (!paged) {
+                            scope.launch { pagerState.scrollToPage(listState.firstVisibleItemIndex) }
+                            paged = true
+                        }
+                    },
+                    label = { Text("صفحة بصفحة") },
+                )
             }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(sections, key = PrayerSection::id) { PrayerSectionCard(it) }
+            if (paged) {
+                HorizontalPager(
+                    state = pagerState,
+                    key = { sections[it].id },
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalAlignment = Alignment.Top,
+                ) { page ->
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        PrayerSectionCard(sections[page])
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(
+                        onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } },
+                        enabled = pagerState.currentPage > 0,
+                    ) { Text("السابق") }
+                    Text("${pagerState.currentPage + 1} / ${sections.size}")
+                    TextButton(
+                        onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } },
+                        enabled = pagerState.currentPage < sections.lastIndex,
+                    ) { Text("التالي") }
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(sections, key = PrayerSection::id) { PrayerSectionCard(it) }
+                }
             }
         }
     }

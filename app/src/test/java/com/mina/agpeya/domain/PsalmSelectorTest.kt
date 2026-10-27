@@ -68,6 +68,19 @@ class PsalmSelectorTest {
         assertTrue(result.sections.any { it.key == "closing" })
     }
 
+    @Test
+    fun allModeKeepsEverySectionInOrderAndPreservesSequentialOffset() {
+        val result = PsalmSelector.select(
+            sections,
+            preference(PsalmMode.ALL, count = 1, offset = 2)
+                .copy(fixedPsalmKeys = setOf("psalm_02")),
+            42,
+        )
+
+        assertEquals(sections, result.sections)
+        assertEquals(2, result.nextSequentialOffset)
+    }
+
     private fun preference(
         mode: PsalmMode,
         count: Int,
