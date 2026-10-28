@@ -37,9 +37,11 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -205,13 +207,18 @@ private fun PrayerReader(
                         )
                     }
                     itemsIndexed(sections, key = { _, section -> section.id }) { index, section ->
+                        val selected by remember(index, paged, pagerState, listState) {
+                            derivedStateOf {
+                                index == if (paged) {
+                                    pagerState.currentPage
+                                } else {
+                                    listState.firstVisibleItemIndex
+                                }
+                            }
+                        }
                         NavigationDrawerItem(
                             label = { Text(section.title) },
-                            selected = index == if (paged) {
-                                pagerState.currentPage
-                            } else {
-                                listState.firstVisibleItemIndex
-                            },
+                            selected = selected,
                             onClick = {
                                 scope.launch {
                                     if (paged) {

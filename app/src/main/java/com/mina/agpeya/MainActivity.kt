@@ -46,9 +46,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,11 +61,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import com.mina.agpeya.alarm.PrayerNotification
 import com.mina.agpeya.data.PrayerCatalog
 import com.mina.agpeya.data.PrayerPreference
@@ -97,19 +102,28 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
     val context = LocalContext.current
+    val view = LocalView.current
     val settings by viewModel.settings.collectAsState()
     val groups by viewModel.groups.collectAsState()
     val psalmsByPrayer by viewModel.psalmsByPrayer.collectAsState()
     val reading by viewModel.reading.collectAsState()
     val error by viewModel.error.collectAsState()
     val snackbars = remember { SnackbarHostState() }
-    var selectedTab by rememberSaveable { mutableStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var settingsPrayer by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingPrayer by rememberSaveable { mutableStateOf(initialPrayerKey) }
     var pendingSoundPrayer by rememberSaveable { mutableStateOf<String?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val sectionsDrawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    DisposableEffect(view, reading != null) {
+        val isReading = reading != null
+        val wasKeepingScreenOn = view.keepScreenOn
+        if (isReading) view.keepScreenOn = true
+        onDispose {
+            if (isReading) view.keepScreenOn = wasKeepingScreenOn
+        }
+    }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
@@ -384,7 +398,7 @@ private fun ReminderPermissionCard() {
                         context.startActivity(
                             android.content.Intent(
                                 android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                                android.net.Uri.parse("package:${context.packageName}"),
+                                "package:${context.packageName}".toUri(),
                             ),
                         )
                     },
@@ -413,8 +427,8 @@ private fun PrayerSettingsCard(
     onResetPsalms: () -> Unit,
     onPickTime: (String) -> Unit,
 ) {
-    var sliderValue by remember(preference.volume) { mutableStateOf(preference.volume) }
-    var countValue by remember(preference.psalmCount) { mutableStateOf(preference.psalmCount.toFloat()) }
+    var sliderValue by remember(preference.volume) { mutableFloatStateOf(preference.volume) }
+    var countValue by remember(preference.psalmCount) { mutableFloatStateOf(preference.psalmCount.toFloat()) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
