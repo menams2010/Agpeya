@@ -25,6 +25,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -43,7 +44,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -170,6 +170,8 @@ internal fun PrayerNavigationDrawer(
 internal fun ReadingScreen(
     reading: PrayerReading,
     drawerState: DrawerState,
+    paged: Boolean,
+    onPagedChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (reading.sections.isEmpty()) {
@@ -179,7 +181,7 @@ internal fun ReadingScreen(
         return
     }
     key(reading.prayer.key) {
-        PrayerReader(reading.sections, drawerState, modifier)
+        PrayerReader(reading.sections, drawerState, paged, onPagedChanged, modifier)
     }
 }
 
@@ -187,9 +189,10 @@ internal fun ReadingScreen(
 private fun PrayerReader(
     sections: List<PrayerSection>,
     drawerState: DrawerState,
+    paged: Boolean,
+    onPagedChanged: (Boolean) -> Unit,
     modifier: Modifier,
 ) {
-    var paged by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val pagerState = rememberPagerState(pageCount = { sections.size })
     val scope = rememberCoroutineScope()
@@ -245,7 +248,7 @@ private fun PrayerReader(
                     onClick = {
                         if (paged) {
                             scope.launch { listState.scrollToItem(pagerState.currentPage) }
-                            paged = false
+                            onPagedChanged(false)
                         }
                     },
                     label = { Text("تمرير متصل") },
@@ -255,7 +258,7 @@ private fun PrayerReader(
                     onClick = {
                         if (!paged) {
                             scope.launch { pagerState.scrollToPage(listState.firstVisibleItemIndex) }
-                            paged = true
+                            onPagedChanged(true)
                         }
                     },
                     label = { Text("صفحة بصفحة") },
@@ -303,7 +306,10 @@ private fun PrayerReader(
 
 @Composable
 private fun PrayerSectionCard(section: PrayerSection) {
-    Card(Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+    ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 section.title,

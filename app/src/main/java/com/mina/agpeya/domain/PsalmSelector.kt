@@ -28,14 +28,16 @@ object PsalmSelector {
         val selected = when (preference.psalmMode) {
             PsalmMode.RANDOM ->
                 psalms.shuffled(Random(dailySeed xor preference.key.hashCode().toLong())).take(count)
-            PsalmMode.SEQUENTIAL -> List(count) { index ->
-                psalms[(preference.sequentialOffset + index) % psalms.size]
+            PsalmMode.SEQUENTIAL -> {
+                val startOffset = preference.sequentialOffset % psalms.size
+                psalms.drop(startOffset).take(count)
             }
             PsalmMode.FIXED -> psalms.filter { it.key in preference.fixedPsalmKeys }
             PsalmMode.ALL -> psalms
         }
         val nextOffset = if (preference.psalmMode == PsalmMode.SEQUENTIAL) {
-            (preference.sequentialOffset + count) % psalms.size
+            val startOffset = preference.sequentialOffset % psalms.size
+            if (startOffset + count >= psalms.size) 0 else startOffset + count
         } else {
             preference.sequentialOffset
         }

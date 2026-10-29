@@ -14,8 +14,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.IntentCompat
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +27,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -58,12 +62,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -104,6 +111,7 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
     val context = LocalContext.current
     val view = LocalView.current
     val settings by viewModel.settings.collectAsState()
+    val pagedReading by viewModel.pagedReading.collectAsState()
     val groups by viewModel.groups.collectAsState()
     val psalmsByPrayer by viewModel.psalmsByPrayer.collectAsState()
     val reading by viewModel.reading.collectAsState()
@@ -192,6 +200,7 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
         ) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 Scaffold(
+                    containerColor = Color.Transparent,
                     topBar = {
                         TopAppBar(
                             title = { Text(reading?.prayer?.title ?: "الأجبية") },
@@ -243,49 +252,64 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                     },
                     snackbarHost = { SnackbarHost(snackbars) },
                 ) { padding ->
-                    when {
-                        reading != null -> ReadingScreen(
-                            reading!!,
-                            sectionsDrawerState,
-                            Modifier.padding(padding),
+                    Box(Modifier.fillMaxSize()) {
+                        Image(
+                            painter = painterResource(R.drawable.background_photo),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            alpha = 0.3f,
+                            modifier = Modifier.fillMaxSize(),
                         )
-                        selectedTab == 0 -> HomeScreen(
-                            onOpenPrayer = viewModel::openPrayer,
-                            onPrayerSettings = { prayerKey ->
-                                settingsPrayer = prayerKey
-                                selectedTab = 1
-                            },
-                            modifier = Modifier.padding(padding),
-                        )
-                        else -> SettingsScreen(
-                            settings = settings,
-                            psalmsByPrayer = psalmsByPrayer,
-                            onAlarmEnabled = viewModel::setAlarmEnabled,
-                            onTimeChanged = viewModel::setTime,
-                            onVolumeChanged = viewModel::setVolume,
-                            onPickSound = { preference ->
-                                pendingSoundPrayer = preference.key
-                                ringtonePicker.launch(
-                                    Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-                                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "اختيار صوت التنبيه")
-                                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
-                                        putExtra(
-                                            RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
-                                            preference.soundUri?.let(Uri::parse)
-                                                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
-                                        )
-                                    },
-                                )
-                            },
-                            onPsalmModeChanged = viewModel::setPsalmMode,
-                            onPsalmCountChanged = viewModel::setPsalmCount,
-                            onFixedPsalmToggled = viewModel::toggleFixedPsalm,
-                            onResetPsalms = viewModel::resetPsalms,
-                            prayerKey = settingsPrayer,
-                            modifier = Modifier.padding(padding),
-                        )
+                        when {
+                            reading != null -> ReadingScreen(
+                                reading!!,
+                                sectionsDrawerState,
+                                pagedReading,
+                                viewModel::setPagedReading,
+                                Modifier.padding(padding),
+                            )
+                            selectedTab == 0 -> HomeScreen(
+                                onOpenPrayer = viewModel::openPrayer,
+                                onPrayerSettings = { prayerKey ->
+                                    settingsPrayer = prayerKey
+                                    selectedTab = 1
+                                },
+                                modifier = Modifier.padding(padding),
+                            )
+                            else -> SettingsScreen(
+                                settings = settings,
+                                psalmsByPrayer = psalmsByPrayer,
+                                onAlarmEnabled = viewModel::setAlarmEnabled,
+                                onTimeChanged = viewModel::setTime,
+                                onVolumeChanged = viewModel::setVolume,
+                                onPickSound = { preference ->
+                                    pendingSoundPrayer = preference.key
+                                    ringtonePicker.launch(
+                                        Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                            putExtra(
+                                                RingtoneManager.EXTRA_RINGTONE_TYPE,
+                                                RingtoneManager.TYPE_ALARM or RingtoneManager.TYPE_RINGTONE,
+                                            )
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "اختيار صوت التنبيه")
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                            putExtra(
+                                                RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                                                preference.soundUri?.let(Uri::parse)
+                                                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+                                            )
+                                        },
+                                    )
+                                },
+                                onPsalmModeChanged = viewModel::setPsalmMode,
+                                onPsalmCountChanged = viewModel::setPsalmCount,
+                                onSequentialGroupSelected = viewModel::setSequentialGroup,
+                                onFixedPsalmToggled = viewModel::toggleFixedPsalm,
+                                onResetPsalms = viewModel::resetPsalms,
+                                prayerKey = settingsPrayer,
+                                modifier = Modifier.padding(padding),
+                            )
+                        }
                     }
                 }
             }
@@ -303,6 +327,7 @@ private fun SettingsScreen(
     onPickSound: (PrayerPreference) -> Unit,
     onPsalmModeChanged: (String, PsalmMode) -> Unit,
     onPsalmCountChanged: (String, Int) -> Unit,
+    onSequentialGroupSelected: (String, Int) -> Unit,
     onFixedPsalmToggled: (String, String) -> Unit,
     onResetPsalms: (String) -> Unit,
     prayerKey: String?,
@@ -344,6 +369,7 @@ private fun SettingsScreen(
                 onPickSound = { onPickSound(preference) },
                 onPsalmModeChanged = onPsalmModeChanged,
                 onPsalmCountChanged = onPsalmCountChanged,
+                onSequentialGroupSelected = onSequentialGroupSelected,
                 onFixedPsalmToggled = onFixedPsalmToggled,
                 onResetPsalms = { onResetPsalms(preference.key) },
                 onPickTime = { current ->
@@ -423,6 +449,7 @@ private fun PrayerSettingsCard(
     onPickSound: () -> Unit,
     onPsalmModeChanged: (String, PsalmMode) -> Unit,
     onPsalmCountChanged: (String, Int) -> Unit,
+    onSequentialGroupSelected: (String, Int) -> Unit,
     onFixedPsalmToggled: (String, String) -> Unit,
     onResetPsalms: () -> Unit,
     onPickTime: (String) -> Unit,
@@ -470,6 +497,7 @@ private fun PrayerSettingsCard(
                     onCountValueChanged = { countValue = it },
                     onCountChangeFinished = { onPsalmCountChanged(prayer.key, countValue.toInt()) },
                     onPsalmModeChanged = onPsalmModeChanged,
+                    onSequentialGroupSelected = onSequentialGroupSelected,
                     onFixedPsalmToggled = onFixedPsalmToggled,
                     onResetPsalms = onResetPsalms,
                 )
@@ -487,6 +515,7 @@ private fun PsalmSettings(
     onCountValueChanged: (Float) -> Unit,
     onCountChangeFinished: () -> Unit,
     onPsalmModeChanged: (String, PsalmMode) -> Unit,
+    onSequentialGroupSelected: (String, Int) -> Unit,
     onFixedPsalmToggled: (String, String) -> Unit,
     onResetPsalms: () -> Unit,
 ) {
@@ -516,7 +545,8 @@ private fun PsalmSettings(
         if (preference.psalmMode == PsalmMode.RANDOM ||
             preference.psalmMode == PsalmMode.SEQUENTIAL
         ) {
-            Text("عدد المزامير: ${countValue.toInt().coerceIn(1, psalms.size)}")
+            val selectedCount = countValue.toInt().coerceIn(1, psalms.size)
+            Text("عدد المزامير: $selectedCount")
             Slider(
                 value = countValue.coerceIn(1f, psalms.size.toFloat()),
                 onValueChange = onCountValueChanged,
@@ -524,6 +554,50 @@ private fun PsalmSettings(
                 valueRange = 1f..psalms.size.toFloat(),
                 steps = (psalms.size - 2).coerceAtLeast(0),
             )
+            if (preference.psalmMode == PsalmMode.SEQUENTIAL) {
+                var groupMenuExpanded by rememberSaveable(prayer.key) {
+                    mutableStateOf(false)
+                }
+                val groupOffsets = (psalms.indices step selectedCount).toList()
+                val selectedGroup = ((preference.sequentialOffset % psalms.size) /
+                    selectedCount).coerceIn(groupOffsets.indices)
+                val groupLabel: (Int) -> String = { groupIndex ->
+                    val start = groupOffsets[groupIndex]
+                    val end = (start + selectedCount - 1).coerceAtMost(psalms.lastIndex)
+                    val psalmRange = if (start == end) {
+                        psalms[start].title
+                    } else {
+                        "${psalms[start].title} - ${psalms[end].title}"
+                    }
+                    "المجموعة ${groupIndex + 1}: $psalmRange"
+                }
+                Text("مجموعة المزامير التالية", style = MaterialTheme.typography.titleSmall)
+                Box {
+                    OutlinedButton(onClick = { groupMenuExpanded = true }) {
+                        Text(groupLabel(selectedGroup))
+                    }
+                    DropdownMenu(
+                        expanded = groupMenuExpanded,
+                        onDismissRequest = { groupMenuExpanded = false },
+                    ) {
+                        groupOffsets.forEachIndexed { index, offset ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        groupLabel(index),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textAlign = TextAlign.Right,
+                                    )
+                                },
+                                onClick = {
+                                    onSequentialGroupSelected(prayer.key, offset)
+                                    groupMenuExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
         }
         if (preference.psalmMode == PsalmMode.FIXED) {
             Text("اختر المزامير الثابتة", style = MaterialTheme.typography.titleSmall)

@@ -27,7 +27,7 @@ class PsalmSelectorTest {
     }
 
     @Test
-    fun sequentialSelectionAdvancesAndWraps() {
+    fun sequentialSelectionDoesNotWrapWithinTheLastGroup() {
         val first = PsalmSelector.select(
             sections,
             preference(PsalmMode.SEQUENTIAL, count = 2, offset = 2),
@@ -40,13 +40,13 @@ class PsalmSelectorTest {
         )
 
         assertEquals(
-            setOf("psalm_03", "psalm_01"),
+            setOf("psalm_03"),
             first.sections.filter { PsalmSelector.isSelectablePsalm(it) }.map { it.key }.toSet(),
         )
         assertTrue(first.sections.any { it.title == "المزمور الخمسون" })
-        assertEquals(1, first.nextSequentialOffset)
+        assertEquals(0, first.nextSequentialOffset)
         assertEquals(
-            setOf("psalm_02", "psalm_03"),
+            setOf("psalm_01", "psalm_02"),
             second.sections.filter { PsalmSelector.isSelectablePsalm(it) }.map { it.key }.toSet(),
         )
     }
