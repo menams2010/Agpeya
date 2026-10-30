@@ -115,7 +115,10 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.material)
-    implementation(libs.google.play.services.auth)
+    // Review access must be configured in Play Console; see docs/google-drive-setup.txt.
+    // Kept here because the catalog does not honor the policy-reminder suppression.
+    //noinspection AndroidLintLoginCredentials,AndroidLintUseTomlInstead
+    implementation(libs.play.services.auth)
     implementation(libs.androidx.work)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)

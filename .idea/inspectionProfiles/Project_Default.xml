@@ -1,9 +1,6 @@
 <component name="InspectionProjectProfileManager">
   <profile version="1.0">
     <option name="myName" value="Project Default" />
-    <inspection_tool class="AndroidLintLoginCredentials" enabled="true" level="WARNING" enabled_by_default="true">
-      <scope name="Google authorization dependencies" level="WARNING" enabled="false" />
-    </inspection_tool>
     <inspection_tool class="GrazieStyle" enabled="true" level="TYPO" enabled_by_default="true">
       <scope name="Third-party license" level="TYPO" enabled="false" />
     </inspection_tool>
