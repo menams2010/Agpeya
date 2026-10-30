@@ -9,6 +9,12 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.CancellationException
+import androidx.datastore.preferences.core.Preferences
+import com.mina.agpeya.SettingsDraft
+import com.mina.agpeya.DriveBackupWorker
 
 private val Context.settingsDataStore by preferencesDataStore(name = "prayer_settings")
 
@@ -59,6 +65,54 @@ data class PrayerPreference(
 
 class PrayerSettingsRepository(context: Context) {
     private val dataStore = context.applicationContext.settingsDataStore
+    private val appContext = context.applicationContext
+    private val accountKey = stringPreferencesKey("drive_backup_account")
+    private val revisionKey = intPreferencesKey("drive_backup_revision")
+    private val uploadedRevisionKey = intPreferencesKey("drive_uploaded_revision")
+    private val statusKey = stringPreferencesKey("drive_backup_status")
+
+    val backupAccount = dataStore.data.map { it[accountKey] }
+    val backupStatus = dataStore.data.map { it[statusKey] }
+
+    suspend fun connectBackup(account: String) {
+        require(account.isNotBlank()) { "Missing Google account" }
+        dataStore.edit {
+            it[accountKey] = account
+            it[revisionKey] = (it[revisionKey] ?: 0) + 1
+            it[statusKey] = "بانتظار نسخ الإعدادات تلقائياً."
+        }
+        scheduleBackup()
+    }
+
+    suspend fun disconnectBackup() {
+        dataStore.edit {
+            it.remove(accountKey)
+            it.remove(statusKey)
+        }
+        DriveBackupWorker.cancel(appContext)
+    }
+
+    suspend fun backupSnapshot(): BackupSnapshot {
+        val preferences = dataStore.data.first()
+        return BackupSnapshot(
+            preferences[accountKey],
+            preferences[revisionKey] ?: 0,
+            preferences[uploadedRevisionKey] ?: -1,
+            SettingsDraft(readPrayers(preferences), readFont(preferences),
+                preferences[booleanPreferencesKey("paged_reading")] ?: false),
+        )
+    }
+
+    suspend fun recordBackupStatus(account: String, message: String, revision: Int? = null) {
+        dataStore.edit {
+            if (it[accountKey] == account) {
+                if (revision != null) it[uploadedRevisionKey] = revision
+                it[statusKey] = if (revision != null && it[revisionKey] != revision) {
+                    "بانتظار نسخ التغييرات الجديدة."
+                } else message
+            }
+        }
+    }
 
     suspend fun saveSettings(
         prayers: List<PrayerPreference>,
@@ -66,6 +120,10 @@ class PrayerSettingsRepository(context: Context) {
         pagedReading: Boolean,
     ) {
         dataStore.edit { preferences ->
+            if (preferences[accountKey] != null) {
+                preferences[revisionKey] = (preferences[revisionKey] ?: 0) + 1
+                preferences[statusKey] = "بانتظار اتصال الإنترنت لنسخ الإعدادات."
+            }
             preferences[booleanPreferencesKey("paged_reading")] = pagedReading
             prayers.forEach { prayer ->
                 val id = prayer.key
@@ -94,9 +152,25 @@ class PrayerSettingsRepository(context: Context) {
             preferences[floatPreferencesKey("reader_background_contrast")] =
                 font.backgroundContrast.coerceIn(0.5f, 2f)
         }
+        if (dataStore.data.first()[accountKey] != null) scheduleBackup()
     }
 
-    val settings: Flow<List<PrayerPreference>> = dataStore.data.map { preferences ->
+    private suspend fun scheduleBackup() {
+        try {
+            DriveBackupWorker.schedule(appContext)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            android.util.Log.e("PrayerSettingsRepository", "Unable to queue automatic backup", error)
+            dataStore.edit {
+                it[statusKey] = "تم حفظ الإعدادات محلياً، لكن تعذر بدء النسخ التلقائي. أعد فتح التطبيق للمحاولة."
+            }
+        }
+    }
+
+    val settings: Flow<List<PrayerPreference>> = dataStore.data.map(::readPrayers).distinctUntilChanged()
+
+    private fun readPrayers(preferences: Preferences): List<PrayerPreference> =
         PrayerCatalog.canonicalPrayers.map { spec ->
             val id = spec.key
             PrayerPreference(
@@ -120,13 +194,14 @@ class PrayerSettingsRepository(context: Context) {
                 soundUri = preferences[stringPreferencesKey("${id}_sound_uri")],
             )
         }
-    }
 
     val pagedReading: Flow<Boolean> = dataStore.data.map {
         it[booleanPreferencesKey("paged_reading")] ?: false
-    }
+    }.distinctUntilChanged()
 
-    val readerFontSettings: Flow<ReaderFontSettings> = dataStore.data.map { preferences ->
+    val readerFontSettings: Flow<ReaderFontSettings> = dataStore.data.map(::readFont).distinctUntilChanged()
+
+    private fun readFont(preferences: Preferences): ReaderFontSettings =
         ReaderFontSettings(
             scale = (preferences[floatPreferencesKey("reader_font_scale")] ?: 1f)
                 .coerceIn(0.8f, 1.6f),
@@ -148,12 +223,19 @@ class PrayerSettingsRepository(context: Context) {
                 (preferences[floatPreferencesKey("reader_background_contrast")] ?: 1f)
                     .coerceIn(0.5f, 2f),
         )
-    }
 
     suspend fun setSequentialOffset(prayerKey: String, offset: Int) {
         dataStore.edit {
             it[intPreferencesKey("${prayerKey}_sequential_offset")] = offset.coerceAtLeast(0)
         }
+
     }
 
 }
+
+data class BackupSnapshot(
+    val account: String?,
+    val revision: Int,
+    val uploadedRevision: Int,
+    val settings: SettingsDraft,
+)

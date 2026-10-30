@@ -1,10 +1,19 @@
 package com.mina.agpeya
 
 import android.app.Application
+import android.accounts.Account
+import android.app.PendingIntent
+import android.content.Intent
 import android.util.Log
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.AuthorizationResult
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.Scope
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mina.agpeya.data.PrayerCatalog
+import com.mina.agpeya.data.DriveSettingsBackup
+import com.mina.agpeya.data.SettingsBackup
 import com.mina.agpeya.data.PrayerDatabase
 import com.mina.agpeya.data.PrayerPreference
 import com.mina.agpeya.data.PrayerSection
@@ -25,6 +34,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+
+enum class SettingsSyncAction { CONNECT, BACKUP, RESTORE }
 
 data class PrayerReading(
     val prayer: PrayerSpec,
@@ -67,6 +79,170 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
     private val _settingsChanged = MutableStateFlow(false)
     val settingsChanged = _settingsChanged.asStateFlow()
     private var savedDraft: SettingsDraft? = null
+    private val _syncAction = MutableStateFlow<SettingsSyncAction?>(null)
+    val syncAction = _syncAction.asStateFlow()
+    private val _syncMessage = MutableStateFlow<String?>(null)
+    val syncMessage = _syncMessage.asStateFlow()
+    private val _syncConsent = MutableStateFlow<PendingIntent?>(null)
+    val syncConsent = _syncConsent.asStateFlow()
+    private val driveAuthorization = Identity.getAuthorizationClient(application)
+    private var syncTransferStarted = false
+    private var selectedDriveAccount: String? = null
+    private val _chooseDriveAccount = MutableStateFlow(false)
+    val chooseDriveAccount = _chooseDriveAccount.asStateFlow()
+    val backupAccount = repository.backupAccount.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val backupStatus = repository.backupStatus.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun requestSettingsSync(action: SettingsSyncAction) {
+        if (_syncAction.value != null || _savingSettings.value) return
+        if (_settingsChanged.value || savedDraft == null) {
+            _syncMessage.value = "احفظ التغييرات أو ألغها قبل المزامنة."
+            return
+        }
+        _syncAction.value = action
+        viewModelScope.launch {
+            try {
+                selectedDriveAccount = repository.backupAccount.first()
+                if (action == SettingsSyncAction.CONNECT || selectedDriveAccount == null) {
+                    _chooseDriveAccount.value = true
+                } else {
+                    authorizeDriveAccount(checkNotNull(selectedDriveAccount))
+                }
+            } catch (error: Exception) {
+                settingsSyncAuthorizationFailed(error)
+            }
+        }
+    }
+
+    fun selectDriveAccount(account: String?) {
+        _chooseDriveAccount.value = false
+        if (account.isNullOrBlank()) {
+            settingsSyncAuthorizationFailed(null)
+        } else {
+            selectedDriveAccount = account
+            authorizeDriveAccount(account)
+        }
+    }
+
+    private fun authorizeDriveAccount(account: String) {
+        val request = AuthorizationRequest.builder()
+            .setAccount(Account(account, "com.google"))
+            .setRequestedScopes(listOf(Scope(DriveSettingsBackup.SCOPE)))
+            .build()
+        driveAuthorization.authorize(request)
+            .addOnSuccessListener(::handleDriveAuthorization)
+            .addOnFailureListener(::settingsSyncAuthorizationFailed)
+    }
+
+    private fun handleDriveAuthorization(result: AuthorizationResult) {
+        if (result.hasResolution()) {
+            val consent = result.pendingIntent
+            if (consent == null) {
+                settingsSyncAuthorizationFailed(IllegalStateException("Google consent is unavailable"))
+            } else {
+                _syncConsent.value = consent
+            }
+        } else {
+            val token = result.accessToken
+            if (token.isNullOrBlank()) {
+                settingsSyncAuthorizationFailed(IllegalStateException("Google did not return an access token"))
+            } else {
+                syncSettings(token)
+            }
+        }
+    }
+
+    fun completeDriveConsent(data: Intent?) {
+        _syncConsent.value = null
+        if (_syncAction.value == null) return
+        try {
+            handleDriveAuthorization(driveAuthorization.getAuthorizationResultFromIntent(data))
+        } catch (error: Exception) {
+            settingsSyncAuthorizationFailed(error)
+        }
+    }
+
+    fun settingsSyncAuthorizationFailed(error: Exception?) {
+        _chooseDriveAccount.value = false
+        _syncConsent.value = null
+        _syncAction.value = null
+        if (error == null) {
+            _syncMessage.value = "تم إلغاء المزامنة."
+        } else {
+            reportError(
+                "Unable to authorize Google Drive. Check the Android OAuth client and Drive API setup",
+                error,
+                "تعذر الاتصال بحساب Google. تحقق من اتصال الإنترنت وحاول مرة أخرى. " +
+                    "إذا استمرت المشكلة، تواصل مع دعم التطبيق."
+            )
+        }
+    }
+
+    private fun syncSettings(token: String) {
+        val action = _syncAction.value ?: return
+        val baseline = savedDraft ?: return
+        if (syncTransferStarted) return
+        syncTransferStarted = true
+        viewModelScope.launch {
+            try {
+                val drive = DriveSettingsBackup()
+                when (action) {
+                    SettingsSyncAction.CONNECT -> {
+                        repository.connectBackup(checkNotNull(selectedDriveAccount))
+                        _syncMessage.value = "تم تفعيل النسخ التلقائي بعد الحفظ إلى حساب Google المختار."
+                    }
+                    SettingsSyncAction.BACKUP -> {
+                        drive.upload(token, SettingsBackup.encode(baseline))
+                        _syncMessage.value = "تم حفظ نسخة الإعدادات في Google Drive."
+                    }
+                    SettingsSyncAction.RESTORE -> {
+                        val restored = SettingsBackup.decode(drive.download(token), baseline)
+                        val psalms = _psalmsByPrayer.value
+                        require(restored.prayers.all { prayer ->
+                            val keys = psalms[prayer.key]?.map { it.key }?.toSet().orEmpty()
+                            prayer.fixedPsalmKeys.all { it in keys }
+                        }) { "Backup contains psalms unavailable on this device" }
+                        _settingsDraft.value = restored
+                        _settingsChanged.value = restored != baseline
+                        _syncMessage.value = "تم تحميل النسخة. اضغط حفظ لتطبيقها أو إلغاء للاحتفاظ بالإعدادات الحالية."
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                reportError(
+                    "Unable to sync settings with Google Drive",
+                    error,
+                    if (action == SettingsSyncAction.RESTORE) {
+                        "تعذرت استعادة الإعدادات. تأكد من وجود نسخة محفوظة في حساب Google نفسه، " +
+                            "وتحقق من اتصال الإنترنت ثم حاول مرة أخرى. لم تتغير إعداداتك."
+                    } else {
+                        "تعذر نسخ الإعدادات إلى Google Drive. تحقق من اتصال الإنترنت وحاول مرة أخرى. " +
+                            "إذا استمرت المشكلة، تواصل مع دعم التطبيق."
+                    },
+                )
+            } finally {
+                syncTransferStarted = false
+                _syncAction.value = null
+            }
+        }
+    }
+
+    fun clearSyncMessage() {
+        _syncMessage.value = null
+    }
+
+    fun disconnectDriveBackup() {
+        if (_syncAction.value != null || _savingSettings.value) return
+        viewModelScope.launch {
+            try {
+                repository.disconnectBackup()
+                _syncMessage.value = "تم إيقاف النسخ التلقائي. النسخة الموجودة في Google Drive لم تُحذف."
+            } catch (error: Exception) {
+                reportError("Unable to disconnect automatic backup", error, "تعذر إيقاف النسخ التلقائي. حاول مرة أخرى.")
+            }
+        }
+    }
 
     fun beginEditingSettings() = updateSettings {
         if (_settingsDraft.value == null) {
@@ -81,14 +257,14 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cancelSettings() {
-        if (!_savingSettings.value) {
+        if (!_savingSettings.value && _syncAction.value == null) {
             _settingsDraft.value = savedDraft
             _settingsChanged.value = false
         }
     }
 
     fun endEditingSettings() {
-        if (!_savingSettings.value) {
+        if (!_savingSettings.value && _syncAction.value == null) {
             _settingsDraft.value = null
             savedDraft = null
             _settingsChanged.value = false
@@ -97,7 +273,7 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveSettings() {
         val draft = _settingsDraft.value ?: return
-        if (_savingSettings.value) return
+        if (_savingSettings.value || _syncAction.value != null) return
         _savingSettings.value = true
         viewModelScope.launch {
             try {
@@ -113,12 +289,19 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun editDraft(transform: (SettingsDraft) -> SettingsDraft) {
-        if (_savingSettings.value) return
+        if (_savingSettings.value || _syncAction.value != null) return
         _settingsDraft.value = _settingsDraft.value?.let(transform)
         _settingsChanged.value = _settingsDraft.value != savedDraft
     }
 
     init {
+        viewModelScope.launch {
+            try {
+                if (repository.backupAccount.first() != null) DriveBackupWorker.schedule(getApplication())
+            } catch (error: Exception) {
+                reportError("Unable to resume automatic backup", error, "تعذر بدء النسخ التلقائي. افتح إعدادات المزامنة.")
+            }
+        }
         viewModelScope.launch {
             try {
                 _groups.value = dao.getPrayerGroups()
@@ -281,9 +464,9 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun reportError(message: String, error: Exception) {
+    private fun reportError(message: String, error: Exception, userMessage: String? = null) {
         Log.e(TAG, message, error)
-        _error.value = "$message: ${error.localizedMessage ?: error.javaClass.simpleName}"
+        _error.value = userMessage ?: "$message: ${error.localizedMessage ?: error.javaClass.simpleName}"
     }
 
     companion object {

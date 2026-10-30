@@ -146,7 +146,13 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
     val context = LocalContext.current
     val view = LocalView.current
     val settingsDraft by viewModel.settingsDraft.collectAsState()
-    val savingSettings by viewModel.savingSettings.collectAsState()
+    val saving by viewModel.savingSettings.collectAsState()
+    val syncAction by viewModel.syncAction.collectAsState()
+    val syncMessage by viewModel.syncMessage.collectAsState()
+    val backupAccount by viewModel.backupAccount.collectAsState()
+    val backupStatus by viewModel.backupStatus.collectAsState()
+    val savingSettings = saving || syncAction != null
+    DriveAuthorization(viewModel)
     val settingsChanged by viewModel.settingsChanged.collectAsState()
     val pagedReading by viewModel.pagedReading.collectAsState()
     val readerFontSettings by viewModel.readerFontSettings.collectAsState()
@@ -155,6 +161,12 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
     val reading by viewModel.reading.collectAsState()
     val error by viewModel.error.collectAsState()
     val snackbars = remember { SnackbarHostState() }
+    LaunchedEffect(syncMessage) {
+        syncMessage?.let {
+            snackbars.showSnackbar(it)
+            viewModel.clearSyncMessage()
+        }
+    }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var settingsPrayer by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingPrayer by rememberSaveable { mutableStateOf(initialPrayerKey) }
@@ -433,6 +445,13 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                                 onFixedPsalmToggled = viewModel::toggleFixedPsalm,
                                 onResetPsalms = viewModel::resetPsalms,
                                 onApplyToAll = viewModel::applyToAll,
+                                syncing = syncAction != null,
+                                backupAccount = backupAccount,
+                                backupStatus = backupStatus,
+                                onConnectBackup = { viewModel.requestSettingsSync(SettingsSyncAction.CONNECT) },
+                                onDisconnectBackup = viewModel::disconnectDriveBackup,
+                                onBackup = { viewModel.requestSettingsSync(SettingsSyncAction.BACKUP) },
+                                onRestore = { viewModel.requestSettingsSync(SettingsSyncAction.RESTORE) },
                                 prayerKey = settingsPrayer,
                                 modifier = Modifier,
                             )
@@ -474,6 +493,13 @@ private fun SettingsScreen(
     onFixedPsalmToggled: (String, String) -> Unit,
     onResetPsalms: (String) -> Unit,
     onApplyToAll: (String) -> Unit,
+    syncing: Boolean,
+    backupAccount: String?,
+    backupStatus: String?,
+    onConnectBackup: () -> Unit,
+    onDisconnectBackup: () -> Unit,
+    onBackup: () -> Unit,
+    onRestore: () -> Unit,
     prayerKey: String?,
     modifier: Modifier = Modifier,
 ) {
@@ -487,7 +513,7 @@ private fun SettingsScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Button(onClick = onSave, enabled = changed && !saving) {
-                Text(if (saving) "جارٍ الحفظ..." else "حفظ")
+                Text(if (saving && !syncing) "جارٍ الحفظ..." else "حفظ")
             }
             OutlinedButton(onClick = onCancel, enabled = changed && !saving) { Text("إلغاء") }
             Text(
@@ -621,10 +647,60 @@ private fun SettingsScreen(
                             ) {
                                 Text("المزامنة السحابية", style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    "مزامنة Google Drive لم تُنفّذ بعد. يتطلب ربطها إعداد مشروع OAuth، " +
-                                        "معرّف عميل ويب، وتسجيل بصمة توقيع التطبيق في Google Cloud.",
+                                    "حفظ الإعدادات في مساحة التطبيق الخاصة في Google Drive أو استعادتها. " +
+                                        "أصوات التنبيه الخاصة بالجهاز لا تُنقل. الاستعادة تحتاج حفظاً لتطبيقها.",
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
+                                Text(
+                                    "اختر حساب Google مرة واحدة. بعد تفعيل النسخ التلقائي، تُنسخ التغييرات " +
+                                        "إلى الحساب نفسه كلما ضغطت حفظ، وعند توفر الإنترنت. إلغاء لا ينسخ التعديلات.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                if (changed) {
+                                    Text("احفظ التغييرات أو ألغها قبل المزامنة.")
+                                }
+                                if (syncing) {
+                                    CircularProgressIndicator(Modifier.size(24.dp))
+                                    Text("جارٍ الاتصال بـ Google Drive...")
+                                }
+                                var confirmRestore by rememberSaveable { mutableStateOf(false) }
+                                if (backupAccount != null) {
+                                    Text("حساب النسخ التلقائي: $backupAccount")
+                                    backupStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                }
+                                OutlinedButton(onClick = onConnectBackup, enabled = !saving && !changed) {
+                                    Text(if (backupAccount == null) "اختيار حساب وتفعيل النسخ التلقائي" else "تغيير الحساب أو إعادة ربطه")
+                                }
+                                if (backupAccount != null) {
+                                    TextButton(onClick = onDisconnectBackup, enabled = !saving) {
+                                        Text("إيقاف النسخ التلقائي")
+                                    }
+                                }
+                                OutlinedButton(onClick = onBackup, enabled = !saving && !changed) {
+                                    Text("نسخ الإعدادات إلى Google Drive")
+                                }
+                                OutlinedButton(
+                                    onClick = { confirmRestore = true },
+                                    enabled = !saving && !changed,
+                                ) {
+                                    Text("استعادة الإعدادات من Google Drive")
+                                }
+                                if (confirmRestore) {
+                                    AlertDialog(
+                                        onDismissRequest = { confirmRestore = false },
+                                        title = { Text("استعادة الإعدادات") },
+                                        text = { Text("سيتم تحميل نسخة حساب Google إلى مسودة الإعدادات. لن تُطبّق إلا بعد الضغط على حفظ.") },
+                                        confirmButton = {
+                                            TextButton(onClick = {
+                                                confirmRestore = false
+                                                onRestore()
+                                            }) { Text("استعادة") }
+                                        },
+                                        dismissButton = {
+                                            TextButton(onClick = { confirmRestore = false }) { Text("إلغاء") }
+                                        },
+                                    )
+                                }
                             }
                         }
                     }

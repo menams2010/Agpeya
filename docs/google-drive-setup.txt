@@ -1,0 +1,60 @@
+Google Drive settings backup
+
+Publisher setup (required before releasing Google Drive backup)
+These steps are performed by the app publisher, not by end users. Users only
+choose a Google account and approve access; they do not create Cloud projects,
+configure OAuth, enter client IDs, or obtain certificate fingerprints.
+
+1. Create or select a Google Cloud project and enable the Google Drive API.
+2. Configure the OAuth consent screen / Google Auth Platform branding, audience,
+   and data access. For an external app in testing, add the Google accounts that
+   will test the app.
+3. Configure the scope https://www.googleapis.com/auth/drive.appdata.
+4. Create an Android OAuth client for package com.mina.agpeya and the SHA-1
+   fingerprint of the certificate signing the installed APK. Add separate clients
+   for debug, local release, and Google Play app signing certificates as needed.
+   The Gradle :app:signingReport task reports local certificate fingerprints.
+   For Play distribution use the app signing certificate, not the upload key.
+5. No web client ID, client secret, or service account is needed in the app.
+   Never commit keystore.properties or signing keys.
+6. Before public release, move the OAuth app out of testing and complete any
+   consent-screen publication or verification requirements shown by Google.
+   Test accounts are only for pre-release testing, not a setup step for users.
+
+Using backup and restore
+- Open Settings, expand General settings, then use the Google Drive buttons.
+- Choose a Google account and approve access once to enable automatic backup.
+  The account choice is stored locally, not the access token. Each successful
+  Settings Save marks a new backup revision and queues network-constrained
+  WorkManager work. Unsaved drafts and Cancel never trigger uploads.
+- Pending work survives process exits and device restarts. A periodic recovery
+  job checks for saved-but-not-uploaded revisions; unchanged settings are skipped.
+  Backups may be delayed by Android background restrictions. Temporary network
+  failures retry with exponential backoff; revoked consent requires reconnecting
+  the account from Settings. The latest status is shown in General settings.
+- Change/reconnect account and Stop automatic backup controls are available.
+  Stopping backup does not delete the existing Drive copy.
+- Save or cancel pending changes before starting either operation.
+- Google authorization requests only the app's private Drive data scope, not
+  access to the user's other Drive files. Google may reuse an authorized account.
+- Backup overwrites the latest agpeya-settings-v1.json in that account's private
+  appDataFolder. This hidden folder is not visible in the ordinary Drive file list.
+- Backup includes reader appearance, reading mode, and prayer alarm/psalm
+  preferences, including sequential position. Image assets are referenced by
+  stable names; the images and prayer database are not uploaded.
+- Custom ringtone URIs are device-specific and are never uploaded. Restore keeps
+  each device's current ringtone selections.
+- Restore validates the downloaded backup, loads it into the settings draft, and
+  leaves saved settings unchanged until Save is pressed. Cancel discards it.
+- Alarm scheduling follows the existing settings-save flow. Android notification
+  and exact-alarm permissions remain local and may need to be granted separately.
+- Access tokens are used in memory only, never persisted or logged. Authorization
+  and network errors are shown to the user; no backup is applied on failure.
+- Restore is manual; there is no automatic downloading or conflict merging.
+  Backing up from another device replaces the account's latest backup.
+
+Validation
+Local tests cover JSON round trips, invalid data, device-local ringtone retention,
+and Drive request handling with fake connections. Real account authorization and
+upload/restore must also be exercised with a configured Cloud project on a device
+or emulator with Google Play services and an internet connection.
