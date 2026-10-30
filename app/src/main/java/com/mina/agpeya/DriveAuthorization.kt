@@ -23,11 +23,18 @@ internal fun DriveAuthorization(viewModel: AgpeyaViewModel) {
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         awaitingAccount = false
-        viewModel.selectDriveAccount(
-            if (result.resultCode == Activity.RESULT_OK) {
-                result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
-            } else null,
-        )
+        if (result.resultCode == Activity.RESULT_OK) {
+            val account = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (account.isNullOrBlank()) {
+                viewModel.settingsSyncAuthorizationFailed(
+                    IllegalStateException("Google account picker returned no account"),
+                )
+            } else {
+                viewModel.selectDriveAccount(account)
+            }
+        } else {
+            viewModel.settingsSyncAuthorizationFailed(null)
+        }
     }
     LaunchedEffect(chooseAccount) {
         if (!chooseAccount) {
@@ -52,11 +59,8 @@ internal fun DriveAuthorization(viewModel: AgpeyaViewModel) {
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { result ->
         awaitingConsent = false
-        if (result.resultCode != Activity.RESULT_OK) {
-            viewModel.settingsSyncAuthorizationFailed(null)
-        } else {
-            viewModel.completeDriveConsent(result.data)
-        }
+        // Failed consent can carry an OAuth error even with RESULT_CANCELED.
+        viewModel.completeDriveConsent(result.data)
     }
     LaunchedEffect(pendingIntent) {
         val intent = pendingIntent

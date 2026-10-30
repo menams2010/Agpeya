@@ -8,6 +8,8 @@ import android.util.Log
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -156,6 +158,7 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
         _syncConsent.value = null
         if (_syncAction.value == null) return
         try {
+            checkNotNull(data) { "Google authorization ended without a result; access was not granted" }
             handleDriveAuthorization(driveAuthorization.getAuthorizationResultFromIntent(data))
         } catch (error: Exception) {
             settingsSyncAuthorizationFailed(error)
@@ -169,11 +172,19 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
         if (error == null) {
             _syncMessage.value = "تم إلغاء المزامنة."
         } else {
+            val message = if (error is ApiException &&
+                error.statusCode == CommonStatusCodes.DEVELOPER_ERROR
+            ) {
+                "خدمة النسخ الاحتياطي غير متاحة لهذه النسخة من التطبيق. تواصل مع دعم التطبيق."
+            } else {
+                "لم يكتمل منح التطبيق صلاحية الوصول إلى Google Drive. " +
+                    "حاول مرة أخرى وتأكد من الموافقة على الوصول. " +
+                    "إذا استمرت المشكلة، تواصل مع دعم التطبيق."
+            }
             reportError(
                 "Unable to authorize Google Drive. Check the Android OAuth client and Drive API setup",
                 error,
-                "تعذر الاتصال بحساب Google. تحقق من اتصال الإنترنت وحاول مرة أخرى. " +
-                    "إذا استمرت المشكلة، تواصل مع دعم التطبيق."
+                message,
             )
         }
     }

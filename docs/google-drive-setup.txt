@@ -26,6 +26,17 @@ configure OAuth, enter client IDs, or obtain certificate fingerprints.
    The IDE Login Credentials Policy Insight is a publishing reminder; suppressing
    it for the authorization dependency does not satisfy this requirement.
 
+Troubleshooting authorization after account selection
+- If device logs say "This android application is not registered to use OAuth2.0",
+  register the installed APK's exact package and signing SHA-1 in an Android OAuth
+  client in the configured Cloud project. Rebuilding the app alone cannot fix
+  missing registration. A debug client does not authorize a release-signed APK.
+- Obtain the installed APK path with adb shell pm path com.mina.agpeya, pull that
+  APK, then run apksigner verify --print-certs on it to verify its actual SHA-1.
+- Google consent may return an unsuccessful activity result containing an OAuth
+  error. The app parses that result rather than assuming the user cancelled.
+  If Google returns no details, the app reports that authorization did not finish.
+
 Using backup and restore
 - Open Settings, expand General settings, then use the Google Drive buttons.
 - Choose a Google account and approve access once to enable automatic backup.
