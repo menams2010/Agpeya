@@ -9,6 +9,8 @@ import com.mina.agpeya.data.PrayerDatabase
 import com.mina.agpeya.data.PrayerPreference
 import com.mina.agpeya.data.PrayerSection
 import com.mina.agpeya.data.PrayerSettingsRepository
+import com.mina.agpeya.data.ReaderFontFamily
+import com.mina.agpeya.data.ReaderFontSettings
 import com.mina.agpeya.data.PrayerSpec
 import com.mina.agpeya.data.PsalmMode
 import com.mina.agpeya.alarm.PrayerAlarmScheduler
@@ -36,6 +38,13 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
 
     val pagedReading: StateFlow<Boolean> =
         repository.pagedReading.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    val readerFontSettings: StateFlow<ReaderFontSettings> =
+        repository.readerFontSettings.stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            ReaderFontSettings(family = ReaderFontFamily.SERIF),
+        )
 
     private val _groups = MutableStateFlow<List<String>>(emptyList())
     val groups = _groups.asStateFlow()
@@ -111,36 +120,16 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
         repository.setPagedReading(paged)
     }
 
-    fun restorePreviousPsalmGroup(prayerKey: String) {
-        viewModelScope.launch {
-            try {
-                val preference = settings.value.firstOrNull { it.key == prayerKey }
-                    ?: repository.settings.first().firstOrNull { it.key == prayerKey }
-                    ?: return@launch
-                val sections = dao.getSections(prayerKey)
-                val psalmCount = sections.count(PsalmSelector::isSelectablePsalm)
-                if (psalmCount == 0) return@launch
-                val previousOffsets = repository.takePreviousSequentialOffsets(prayerKey)
-                    ?: return@launch
-                val (previousStartOffset, previousNextOffset) = previousOffsets
-                val selection = PsalmSelector.select(
-                    sections = sections,
-                    preference = preference.copy(sequentialOffset = previousStartOffset),
-                    dailySeed = Calendar.getInstance().let { calendar ->
-                        calendar.get(Calendar.YEAR) * 1000L + calendar.get(Calendar.DAY_OF_YEAR)
-                    },
-                )
-                repository.setSequentialOffsetWithoutUndo(
-                    prayerKey,
-                    previousNextOffset,
-                    previousStartOffset,
-                )
-                val prayer = PrayerCatalog.canonicalPrayers.first { it.key == prayerKey }
-                _reading.value = PrayerReading(prayer, selection.sections)
-            } catch (error: Exception) {
-                reportError("Unable to restore the previous psalm group", error)
-            }
-        }
+    fun setReaderFontScale(scale: Float) = updateSettings {
+        repository.setReaderFontScale(scale)
+    }
+
+    fun setReaderFontFamily(family: ReaderFontFamily) = updateSettings {
+        repository.setReaderFontFamily(family)
+    }
+
+    fun setReaderFontColor(color: Int) = updateSettings {
+        repository.setReaderFontColor(color)
     }
 
     fun refreshSchedules() {

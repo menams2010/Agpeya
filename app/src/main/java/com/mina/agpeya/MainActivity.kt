@@ -15,17 +15,26 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.IntentCompat
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -59,20 +68,35 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import com.mina.agpeya.alarm.PrayerNotification
@@ -80,6 +104,8 @@ import com.mina.agpeya.data.PrayerCatalog
 import com.mina.agpeya.data.PrayerPreference
 import com.mina.agpeya.data.PrayerSection
 import com.mina.agpeya.data.PrayerSpec
+import com.mina.agpeya.data.ReaderFontFamily
+import com.mina.agpeya.data.ReaderFontSettings
 import com.mina.agpeya.data.PsalmMode
 import java.util.Locale
 import kotlinx.coroutines.launch
@@ -112,6 +138,7 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
     val view = LocalView.current
     val settings by viewModel.settings.collectAsState()
     val pagedReading by viewModel.pagedReading.collectAsState()
+    val readerFontSettings by viewModel.readerFontSettings.collectAsState()
     val groups by viewModel.groups.collectAsState()
     val psalmsByPrayer by viewModel.psalmsByPrayer.collectAsState()
     val reading by viewModel.reading.collectAsState()
@@ -265,6 +292,7 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                                 reading!!,
                                 sectionsDrawerState,
                                 pagedReading,
+                                readerFontSettings,
                                 viewModel::setPagedReading,
                                 Modifier.padding(padding),
                             )
@@ -279,6 +307,10 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                             else -> SettingsScreen(
                                 settings = settings,
                                 psalmsByPrayer = psalmsByPrayer,
+                                readerFontSettings = readerFontSettings,
+                                onReaderFontScaleChanged = viewModel::setReaderFontScale,
+                                onReaderFontFamilyChanged = viewModel::setReaderFontFamily,
+                                onReaderFontColorChanged = viewModel::setReaderFontColor,
                                 onAlarmEnabled = viewModel::setAlarmEnabled,
                                 onTimeChanged = viewModel::setTime,
                                 onVolumeChanged = viewModel::setVolume,
@@ -321,6 +353,10 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
 private fun SettingsScreen(
     settings: List<PrayerPreference>,
     psalmsByPrayer: Map<String, List<PrayerSection>>,
+    readerFontSettings: ReaderFontSettings,
+    onReaderFontScaleChanged: (Float) -> Unit,
+    onReaderFontFamilyChanged: (ReaderFontFamily) -> Unit,
+    onReaderFontColorChanged: (Int) -> Unit,
     onAlarmEnabled: (String, Boolean) -> Unit,
     onTimeChanged: (String, String) -> Unit,
     onVolumeChanged: (String, Float) -> Unit,
@@ -348,6 +384,14 @@ private fun SettingsScreen(
             )
         }
         item {
+            ReaderFontSettingsCard(
+                settings = readerFontSettings,
+                onScaleChanged = onReaderFontScaleChanged,
+                onFamilyChanged = onReaderFontFamilyChanged,
+                onColorChanged = onReaderFontColorChanged,
+            )
+        }
+        item {
             ReminderPermissionCard()
         }
         items(
@@ -364,7 +408,6 @@ private fun SettingsScreen(
                     expandedPrayer = if (expandedPrayer == preference.key) null else preference.key
                 },
                 onAlarmEnabled = onAlarmEnabled,
-                onTimeChanged = onTimeChanged,
                 onVolumeChanged = onVolumeChanged,
                 onPickSound = { onPickSound(preference) },
                 onPsalmModeChanged = onPsalmModeChanged,
@@ -405,6 +448,281 @@ private fun SettingsScreen(
 }
 
 @Composable
+private fun ReaderFontSettingsCard(
+    settings: ReaderFontSettings,
+    onScaleChanged: (Float) -> Unit,
+    onFamilyChanged: (ReaderFontFamily) -> Unit,
+    onColorChanged: (Int) -> Unit,
+) {
+    var scale by remember(settings.scale) { mutableFloatStateOf(settings.scale) }
+    var showColorPicker by rememberSaveable { mutableStateOf(false) }
+    val fontFamily = when (settings.family) {
+        ReaderFontFamily.DEFAULT -> FontFamily.Default
+        ReaderFontFamily.SERIF -> FontFamily.Serif
+        ReaderFontFamily.MONOSPACE -> FontFamily.Monospace
+    }
+    val selectedColor = Color(settings.color)
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("إعدادات خط القراءة", style = MaterialTheme.typography.titleMedium)
+            Text("حجم الخط: ${(scale * 100).toInt()}٪")
+            Slider(
+                value = scale,
+                onValueChange = { scale = it },
+                onValueChangeFinished = { onScaleChanged(scale) },
+                valueRange = 0.8f..1.6f,
+                steps = 7,
+            )
+            Text("نوع الخط", style = MaterialTheme.typography.titleSmall)
+            ReaderFontFamily.entries.forEach { family ->
+                val label = when (family) {
+                    ReaderFontFamily.DEFAULT -> "الافتراضي"
+                    ReaderFontFamily.SERIF -> "نسخي"
+                    ReaderFontFamily.MONOSPACE -> "أحادي المسافة"
+                }
+                Row(
+                    Modifier.fillMaxWidth().clickable { onFamilyChanged(family) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = settings.family == family,
+                        onClick = { onFamilyChanged(family) },
+                    )
+                    Text(label)
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("لون الخط", style = MaterialTheme.typography.titleSmall)
+                TextButton(onClick = { showColorPicker = true }) {
+                    Box(
+                        Modifier.padding(end = 8.dp).size(24.dp)
+                            .background(selectedColor, CircleShape)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                    )
+                    Text("اختيار اللون")
+                }
+            }
+            Text(
+                "مثال على شكل نص القراءة",
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    color = selectedColor,
+                    fontFamily = fontFamily,
+                    fontSize = MaterialTheme.typography.bodyLarge.fontSize * scale,
+                ),
+            )
+        }
+    }
+    if (showColorPicker) {
+        ReaderColorPickerDialog(
+            initialColor = settings.color,
+            onDismiss = { showColorPicker = false },
+            onColorSelected = {
+                onColorChanged(it)
+                showColorPicker = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun ReaderColorPickerDialog(
+    initialColor: Int,
+    onDismiss: () -> Unit,
+    onColorSelected: (Int) -> Unit,
+) {
+    val initialHsv = remember(initialColor) { colorToHsv(initialColor) }
+    var hue by remember(initialColor) { mutableFloatStateOf(initialHsv[0]) }
+    var saturation by remember(initialColor) { mutableFloatStateOf(initialHsv[1]) }
+    var brightness by remember(initialColor) { mutableFloatStateOf(initialHsv[2]) }
+    var alpha by remember(initialColor) {
+        mutableFloatStateOf(android.graphics.Color.alpha(initialColor) / 255f)
+    }
+    var pickerColor by remember(initialColor) { mutableIntStateOf(initialColor) }
+
+    fun updateColor(color: Int) {
+        pickerColor = color
+    }
+
+    fun updateFromHsv() {
+        updateColor(
+            android.graphics.Color.HSVToColor(
+                (alpha * 255).toInt(),
+                floatArrayOf(hue, saturation, brightness),
+            ),
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("اختيار لون الخط") },
+        text = {
+            Column(
+                Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(
+                    Modifier.fillMaxWidth().height(40.dp)
+                        .background(Color(pickerColor), CircleShape),
+                )
+                HueColorWheel(
+                    hue = hue,
+                    saturation = saturation,
+                    brightness = brightness,
+                    onColorChanged = { newHue, newSaturation, newBrightness ->
+                        hue = newHue
+                        saturation = newSaturation
+                        brightness = newBrightness
+                        updateFromHsv()
+                    },
+                )
+                Text("الشفافية")
+                Slider(
+                    value = alpha,
+                    onValueChange = {
+                        alpha = it
+                        updateFromHsv()
+                    },
+                    valueRange = 0f..1f,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onColorSelected(pickerColor) }) { Text("حفظ") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء") }
+        },
+    )
+}
+
+@Composable
+private fun HueColorWheel(
+    hue: Float,
+    saturation: Float,
+    brightness: Float,
+    onColorChanged: (Float, Float, Float) -> Unit,
+) {
+    val density = LocalDensity.current
+    val updateAtPosition: (Offset, Float, Float) -> Unit = { position, width, height ->
+        val center = Offset(width / 2f, height / 2f)
+        val dx = position.x - center.x
+        val dy = position.y - center.y
+        val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+        val radius = minOf(width, height) * 0.4f
+        val ringWidth = minOf(width, height) * 0.085f
+        val innerRadius = radius - ringWidth * 0.65f - 8.dp.value * density.density
+        when {
+            distance <= innerRadius -> onColorChanged(
+                hue,
+                ((dx / innerRadius + 1f) / 2f).coerceIn(0f, 1f),
+                ((1f - dy / innerRadius) / 2f).coerceIn(0f, 1f),
+            )
+            distance in (radius - ringWidth / 2f)..(radius + ringWidth / 2f) -> {
+                val angle = Math.toDegrees(kotlin.math.atan2(dy, dx).toDouble())
+                onColorChanged(((angle + 360.0) % 360.0).toFloat(), saturation, brightness)
+            }
+        }
+    }
+    val latestUpdateAtPosition = rememberUpdatedState(updateAtPosition)
+
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Canvas(
+            Modifier.widthIn(max = 280.dp).fillMaxWidth().aspectRatio(1f)
+                .pointerInput(Unit) {
+                    detectTapGestures {
+                        latestUpdateAtPosition.value(
+                            it,
+                            size.width.toFloat(),
+                            size.height.toFloat(),
+                        )
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, _ ->
+                        change.consume()
+                        latestUpdateAtPosition.value(
+                            change.position,
+                            size.width.toFloat(),
+                            size.height.toFloat(),
+                        )
+                    }
+                },
+        ) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val radius = minOf(size.width, size.height) * 0.4f
+        val ringWidth = minOf(size.width, size.height) * 0.085f
+        val innerRadius = radius - ringWidth * 0.65f - 8.dp.toPx()
+        val hueColors = listOf(
+            Color.Red,
+            Color.Yellow,
+            Color.Green,
+            Color.Cyan,
+            Color.Blue,
+            Color.Magenta,
+            Color.Red,
+        )
+        drawCircle(
+            brush = Brush.sweepGradient(hueColors, center),
+            radius = radius,
+            center = center,
+            style = Stroke(width = ringWidth),
+        )
+
+        val hueColor = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+        val selectionPath = Path().apply {
+            addOval(
+                Rect(
+                    center.x - innerRadius,
+                    center.y - innerRadius,
+                    center.x + innerRadius,
+                    center.y + innerRadius,
+                ),
+            )
+        }
+        clipPath(selectionPath) {
+            drawCircle(hueColor, innerRadius, center)
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    listOf(Color.White, Color.Transparent),
+                    startX = center.x - innerRadius,
+                    endX = center.x + innerRadius,
+                ),
+            )
+            drawRect(
+                brush = Brush.verticalGradient(
+                    listOf(Color.Transparent, Color.Black),
+                    startY = center.y - innerRadius,
+                    endY = center.y + innerRadius,
+                ),
+            )
+        }
+
+        val hueAngle = Math.toRadians(hue.toDouble())
+        val hueIndicator = Offset(
+            center.x + kotlin.math.cos(hueAngle).toFloat() * radius,
+            center.y + kotlin.math.sin(hueAngle).toFloat() * radius,
+        )
+        drawCircle(Color.White, ringWidth * 0.34f, hueIndicator)
+        drawCircle(hueColor, ringWidth * 0.23f, hueIndicator)
+
+        val valueIndicator = Offset(
+            center.x + (saturation * 2f - 1f) * innerRadius,
+            center.y + (1f - brightness * 2f) * innerRadius,
+        )
+        drawCircle(Color.White, 12.dp.toPx(), valueIndicator)
+        drawCircle(Color.Black, 10.dp.toPx(), valueIndicator)
+        }
+    }
+}
+
+private fun colorToHsv(color: Int): FloatArray =
+    FloatArray(3).also { android.graphics.Color.colorToHSV(color, it) }
+
+@Composable
 private fun ReminderPermissionCard() {
     val context = LocalContext.current
     val alarmManager = context.getSystemService(android.app.AlarmManager::class.java)
@@ -422,7 +740,7 @@ private fun ReminderPermissionCard() {
                 OutlinedButton(
                     onClick = {
                         context.startActivity(
-                            android.content.Intent(
+                            Intent(
                                 android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                                 "package:${context.packageName}".toUri(),
                             ),
@@ -444,7 +762,6 @@ private fun PrayerSettingsCard(
     expanded: Boolean,
     onExpanded: () -> Unit,
     onAlarmEnabled: (String, Boolean) -> Unit,
-    onTimeChanged: (String, String) -> Unit,
     onVolumeChanged: (String, Float) -> Unit,
     onPickSound: () -> Unit,
     onPsalmModeChanged: (String, PsalmMode) -> Unit,

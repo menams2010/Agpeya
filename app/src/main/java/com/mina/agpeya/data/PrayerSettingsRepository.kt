@@ -19,6 +19,18 @@ enum class PsalmMode {
     ALL,
 }
 
+enum class ReaderFontFamily {
+    DEFAULT,
+    SERIF,
+    MONOSPACE,
+}
+
+data class ReaderFontSettings(
+    val scale: Float = 1f,
+    val family: ReaderFontFamily = ReaderFontFamily.SERIF,
+    val color: Int = 0xFF332B25.toInt(),
+)
+
 data class PrayerPreference(
     val key: String,
     val enabled: Boolean,
@@ -29,8 +41,6 @@ data class PrayerPreference(
     val fixedPsalmKeys: Set<String>,
     val sequentialOffset: Int,
     val soundUri: String? = null,
-    val previousSequentialOffset: Int? = null,
-    val lastSequentialOffset: Int? = null,
 )
 
 class PrayerSettingsRepository(context: Context) {
@@ -58,16 +68,41 @@ class PrayerSettingsRepository(context: Context) {
                 sequentialOffset = (preferences[intPreferencesKey("${id}_sequential_offset")] ?: 0)
                     .coerceAtLeast(0),
                 soundUri = preferences[stringPreferencesKey("${id}_sound_uri")],
-                previousSequentialOffset = preferences[intPreferencesKey("${id}_previous_sequential_offset")]
-                    ?.coerceAtLeast(0),
-                lastSequentialOffset = preferences[intPreferencesKey("${id}_last_sequential_offset")]
-                    ?.coerceAtLeast(0),
             )
         }
     }
 
     val pagedReading: Flow<Boolean> = dataStore.data.map {
         it[booleanPreferencesKey("paged_reading")] ?: false
+    }
+
+    val readerFontSettings: Flow<ReaderFontSettings> = dataStore.data.map { preferences ->
+        ReaderFontSettings(
+            scale = (preferences[floatPreferencesKey("reader_font_scale")] ?: 1f)
+                .coerceIn(0.8f, 1.6f),
+            family = preferences[stringPreferencesKey("reader_font_family")]
+                ?.let { stored -> ReaderFontFamily.entries.firstOrNull { it.name == stored } }
+                ?: ReaderFontFamily.SERIF,
+            color = preferences[intPreferencesKey("reader_font_color")] ?: 0xFF332B25.toInt(),
+        )
+    }
+
+    suspend fun setReaderFontScale(scale: Float) {
+        dataStore.edit {
+            it[floatPreferencesKey("reader_font_scale")] = scale.coerceIn(0.8f, 1.6f)
+        }
+    }
+
+    suspend fun setReaderFontFamily(family: ReaderFontFamily) {
+        dataStore.edit {
+            it[stringPreferencesKey("reader_font_family")] = family.name
+        }
+    }
+
+    suspend fun setReaderFontColor(color: Int) {
+        dataStore.edit {
+            it[intPreferencesKey("reader_font_color")] = color
+        }
     }
 
     suspend fun setPagedReading(paged: Boolean) {
@@ -111,46 +146,7 @@ class PrayerSettingsRepository(context: Context) {
 
     suspend fun setSequentialOffset(prayerKey: String, offset: Int) {
         dataStore.edit {
-            val currentKey = intPreferencesKey("${prayerKey}_sequential_offset")
-            val previousKey = intPreferencesKey("${prayerKey}_previous_sequential_offset")
-            val previousNextKey = intPreferencesKey("${prayerKey}_previous_sequential_next_offset")
-            val lastKey = intPreferencesKey("${prayerKey}_last_sequential_offset")
-            val currentOffset = (it[currentKey] ?: 0).coerceAtLeast(0)
-            it[lastKey]?.let { lastOffset ->
-                it[previousKey] = lastOffset
-                it[previousNextKey] = currentOffset
-            }
-            it[lastKey] = currentOffset
-            it[currentKey] = offset.coerceAtLeast(0)
-        }
-    }
-
-    suspend fun takePreviousSequentialOffsets(prayerKey: String): Pair<Int, Int>? {
-        var offsets: Pair<Int, Int>? = null
-        dataStore.edit {
-            val previousKey = intPreferencesKey("${prayerKey}_previous_sequential_offset")
-            val previousNextKey = intPreferencesKey("${prayerKey}_previous_sequential_next_offset")
-            val previousOffset = it[previousKey]
-            val previousNextOffset = it[previousNextKey]
-            it.remove(previousKey)
-            it.remove(previousNextKey)
-            if (previousOffset != null && previousNextOffset != null) {
-                offsets = previousOffset to previousNextOffset
-            }
-        }
-        return offsets
-    }
-
-    suspend fun setSequentialOffsetWithoutUndo(
-        prayerKey: String,
-        offset: Int,
-        lastOffset: Int,
-    ) {
-        dataStore.edit {
             it[intPreferencesKey("${prayerKey}_sequential_offset")] = offset.coerceAtLeast(0)
-            it[intPreferencesKey("${prayerKey}_last_sequential_offset")] = lastOffset.coerceAtLeast(0)
-            it.remove(intPreferencesKey("${prayerKey}_previous_sequential_offset"))
-            it.remove(intPreferencesKey("${prayerKey}_previous_sequential_next_offset"))
         }
     }
 
@@ -160,9 +156,6 @@ class PrayerSettingsRepository(context: Context) {
             it.remove(intPreferencesKey("${prayerKey}_psalm_count"))
             it.remove(stringPreferencesKey("${prayerKey}_fixed_psalms"))
             it.remove(intPreferencesKey("${prayerKey}_sequential_offset"))
-            it.remove(intPreferencesKey("${prayerKey}_previous_sequential_offset"))
-            it.remove(intPreferencesKey("${prayerKey}_previous_sequential_next_offset"))
-            it.remove(intPreferencesKey("${prayerKey}_last_sequential_offset"))
         }
     }
 }

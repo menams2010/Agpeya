@@ -41,17 +41,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mina.agpeya.data.PrayerCatalog
+import com.mina.agpeya.data.ReaderFontFamily
+import com.mina.agpeya.data.ReaderFontSettings
 import com.mina.agpeya.data.PrayerSection
 import com.mina.agpeya.data.PrayerSpec
 import kotlinx.coroutines.launch
@@ -171,9 +173,15 @@ internal fun ReadingScreen(
     reading: PrayerReading,
     drawerState: DrawerState,
     paged: Boolean,
+    fontSettings: ReaderFontSettings,
     onPagedChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val fontFamily = when (fontSettings.family) {
+        ReaderFontFamily.DEFAULT -> FontFamily.Default
+        ReaderFontFamily.SERIF -> FontFamily.Serif
+        ReaderFontFamily.MONOSPACE -> FontFamily.Monospace
+    }
     if (reading.sections.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("لا يوجد نص لهذه الصلاة في قاعدة البيانات")
@@ -181,7 +189,16 @@ internal fun ReadingScreen(
         return
     }
     key(reading.prayer.key) {
-        PrayerReader(reading.sections, drawerState, paged, onPagedChanged, modifier)
+        PrayerReader(
+            reading.sections,
+            drawerState,
+            paged,
+            fontFamily,
+            fontSettings.scale,
+            Color(fontSettings.color),
+            onPagedChanged,
+            modifier,
+        )
     }
 }
 
@@ -190,6 +207,9 @@ private fun PrayerReader(
     sections: List<PrayerSection>,
     drawerState: DrawerState,
     paged: Boolean,
+    fontFamily: FontFamily,
+    fontScale: Float,
+    fontColor: Color,
     onPagedChanged: (Boolean) -> Unit,
     modifier: Modifier,
 ) {
@@ -272,7 +292,7 @@ private fun PrayerReader(
                     verticalAlignment = Alignment.Top,
                 ) { page ->
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                        PrayerSectionCard(sections[page])
+                        PrayerSectionCard(sections[page], fontFamily, fontScale, fontColor)
                     }
                 }
                 Row(
@@ -297,7 +317,9 @@ private fun PrayerReader(
                     contentPadding = PaddingValues(vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(sections, key = PrayerSection::id) { PrayerSectionCard(it) }
+                    items(sections, key = PrayerSection::id) {
+                        PrayerSectionCard(it, fontFamily, fontScale, fontColor)
+                    }
                 }
             }
         }
@@ -305,20 +327,33 @@ private fun PrayerReader(
 }
 
 @Composable
-private fun PrayerSectionCard(section: PrayerSection) {
+private fun PrayerSectionCard(
+    section: PrayerSection,
+    fontFamily: FontFamily,
+    fontScale: Float,
+    fontColor: Color,
+) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 section.title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    color = fontColor,
+                    fontFamily = fontFamily,
+                    fontSize = MaterialTheme.typography.titleMedium.fontSize * fontScale,
+                ),
                 fontWeight = FontWeight.Bold,
             )
             Text(
                 section.content.replace("\\n", "\n"),
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    color = fontColor,
+                    fontFamily = fontFamily,
+                    fontSize = MaterialTheme.typography.bodyLarge.fontSize * fontScale,
+                ),
                 textAlign = TextAlign.Start,
             )
         }
