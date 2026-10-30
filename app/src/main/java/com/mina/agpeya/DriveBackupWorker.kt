@@ -14,6 +14,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.Operation
+import androidx.work.await
 import androidx.work.workDataOf
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
@@ -37,7 +39,7 @@ class DriveBackupWorker(context: Context, parameters: WorkerParameters) :
     override suspend fun doWork(): Result {
         if (inputData.getBoolean("recovery", false)) {
             return withContext(Dispatchers.IO) {
-                enqueue(applicationContext).result.get()
+                enqueue(applicationContext).await()
                 Result.success()
             }
         }
@@ -98,18 +100,18 @@ class DriveBackupWorker(context: Context, parameters: WorkerParameters) :
         private val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED).build()
 
-        suspend fun schedule(context: Context) = withContext(Dispatchers.IO) {
+        suspend fun schedule(context: Context): Unit = withContext(Dispatchers.IO) {
             val manager = WorkManager.getInstance(context)
             manager.enqueueUniquePeriodicWork(
                 RECOVERY, ExistingPeriodicWorkPolicy.KEEP,
                 PeriodicWorkRequestBuilder<DriveBackupWorker>(15, TimeUnit.MINUTES)
                     .setInputData(workDataOf("recovery" to true))
                     .setConstraints(constraints).build(),
-            ).result.get()
-            enqueue(context).result.get()
+            ).await()
+            enqueue(context).await()
         }
 
-        private fun enqueue(context: Context) =
+        private fun enqueue(context: Context): Operation =
             WorkManager.getInstance(context).enqueueUniqueWork(
                 IMMEDIATE,
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
@@ -119,11 +121,10 @@ class DriveBackupWorker(context: Context, parameters: WorkerParameters) :
                     .build(),
             )
 
-        suspend fun cancel(context: Context) = withContext(Dispatchers.IO) {
-            WorkManager.getInstance(context).apply {
-                cancelUniqueWork(IMMEDIATE).result.get()
-                cancelUniqueWork(RECOVERY).result.get()
-            }
+        suspend fun cancel(context: Context): Unit = withContext(Dispatchers.IO) {
+            val manager = WorkManager.getInstance(context)
+            manager.cancelUniqueWork(IMMEDIATE).await()
+            manager.cancelUniqueWork(RECOVERY).await()
         }
     }
 }

@@ -77,7 +77,7 @@ class DriveSettingsBackup internal constructor(
             }
 
             return connection.inputStream.use { stream ->
-                val bytes = stream.readNBytesCompat(SettingsBackup.MAX_BYTES + 1)
+                val bytes = stream.readBackupBytes()
                 require(bytes.size <= SettingsBackup.MAX_BYTES) { "Settings backup is too large" }
                 bytes.toString(Charsets.UTF_8)
             }
@@ -86,7 +86,8 @@ class DriveSettingsBackup internal constructor(
         }
     }
 
-    private fun java.io.InputStream.readNBytesCompat(limit: Int): ByteArray {
+    private fun java.io.InputStream.readBackupBytes(): ByteArray {
+        val limit = SettingsBackup.MAX_BYTES + 1
         val output = java.io.ByteArrayOutputStream()
         val buffer = ByteArray(8192)
         while (output.size() < limit) {
