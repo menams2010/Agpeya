@@ -25,9 +25,17 @@ enum class ReaderFontFamily {
     MONOSPACE,
 }
 
+enum class ReaderFontStyle {
+    REGULAR,
+    BOLD,
+    ITALIC,
+    BOLD_ITALIC,
+}
+
 data class ReaderFontSettings(
     val scale: Float = 1f,
     val family: ReaderFontFamily = ReaderFontFamily.SERIF,
+    val style: ReaderFontStyle = ReaderFontStyle.REGULAR,
     val color: Int = 0xFF332B25.toInt(),
 )
 
@@ -83,6 +91,9 @@ class PrayerSettingsRepository(context: Context) {
             family = preferences[stringPreferencesKey("reader_font_family")]
                 ?.let { stored -> ReaderFontFamily.entries.firstOrNull { it.name == stored } }
                 ?: ReaderFontFamily.SERIF,
+            style = preferences[stringPreferencesKey("reader_font_style")]
+                ?.let { stored -> ReaderFontStyle.entries.firstOrNull { it.name == stored } }
+                ?: ReaderFontStyle.REGULAR,
             color = preferences[intPreferencesKey("reader_font_color")] ?: 0xFF332B25.toInt(),
         )
     }
@@ -96,6 +107,12 @@ class PrayerSettingsRepository(context: Context) {
     suspend fun setReaderFontFamily(family: ReaderFontFamily) {
         dataStore.edit {
             it[stringPreferencesKey("reader_font_family")] = family.name
+        }
+    }
+
+    suspend fun setReaderFontStyle(style: ReaderFontStyle) {
+        dataStore.edit {
+            it[stringPreferencesKey("reader_font_style")] = style.name
         }
     }
 

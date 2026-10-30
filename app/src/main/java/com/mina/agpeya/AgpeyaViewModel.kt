@@ -10,6 +10,7 @@ import com.mina.agpeya.data.PrayerPreference
 import com.mina.agpeya.data.PrayerSection
 import com.mina.agpeya.data.PrayerSettingsRepository
 import com.mina.agpeya.data.ReaderFontFamily
+import com.mina.agpeya.data.ReaderFontStyle
 import com.mina.agpeya.data.ReaderFontSettings
 import com.mina.agpeya.data.PrayerSpec
 import com.mina.agpeya.data.PsalmMode
@@ -126,6 +127,10 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setReaderFontFamily(family: ReaderFontFamily) = updateSettings {
         repository.setReaderFontFamily(family)
+    }
+
+    fun setReaderFontStyle(style: ReaderFontStyle) = updateSettings {
+        repository.setReaderFontStyle(style)
     }
 
     fun setReaderFontColor(color: Int) = updateSettings {

@@ -49,10 +49,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mina.agpeya.data.PrayerCatalog
 import com.mina.agpeya.data.ReaderFontFamily
+import com.mina.agpeya.data.ReaderFontStyle
 import com.mina.agpeya.data.ReaderFontSettings
 import com.mina.agpeya.data.PrayerSection
 import com.mina.agpeya.data.PrayerSpec
@@ -182,6 +184,14 @@ internal fun ReadingScreen(
         ReaderFontFamily.SERIF -> FontFamily.Serif
         ReaderFontFamily.MONOSPACE -> FontFamily.Monospace
     }
+    val fontWeight = when (fontSettings.style) {
+        ReaderFontStyle.REGULAR, ReaderFontStyle.ITALIC -> FontWeight.Normal
+        ReaderFontStyle.BOLD, ReaderFontStyle.BOLD_ITALIC -> FontWeight.Bold
+    }
+    val fontStyle = when (fontSettings.style) {
+        ReaderFontStyle.REGULAR, ReaderFontStyle.BOLD -> FontStyle.Normal
+        ReaderFontStyle.ITALIC, ReaderFontStyle.BOLD_ITALIC -> FontStyle.Italic
+    }
     if (reading.sections.isEmpty()) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("لا يوجد نص لهذه الصلاة في قاعدة البيانات")
@@ -194,6 +204,8 @@ internal fun ReadingScreen(
             drawerState,
             paged,
             fontFamily,
+            fontWeight,
+            fontStyle,
             fontSettings.scale,
             Color(fontSettings.color),
             onPagedChanged,
@@ -208,6 +220,8 @@ private fun PrayerReader(
     drawerState: DrawerState,
     paged: Boolean,
     fontFamily: FontFamily,
+    fontWeight: FontWeight,
+    fontStyle: FontStyle,
     fontScale: Float,
     fontColor: Color,
     onPagedChanged: (Boolean) -> Unit,
@@ -292,7 +306,14 @@ private fun PrayerReader(
                     verticalAlignment = Alignment.Top,
                 ) { page ->
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                        PrayerSectionCard(sections[page], fontFamily, fontScale, fontColor)
+                        PrayerSectionCard(
+                            sections[page],
+                            fontFamily,
+                            fontWeight,
+                            fontStyle,
+                            fontScale,
+                            fontColor,
+                        )
                     }
                 }
                 Row(
@@ -318,7 +339,14 @@ private fun PrayerReader(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(sections, key = PrayerSection::id) {
-                        PrayerSectionCard(it, fontFamily, fontScale, fontColor)
+                        PrayerSectionCard(
+                            it,
+                            fontFamily,
+                            fontWeight,
+                            fontStyle,
+                            fontScale,
+                            fontColor,
+                        )
                     }
                 }
             }
@@ -330,6 +358,8 @@ private fun PrayerReader(
 private fun PrayerSectionCard(
     section: PrayerSection,
     fontFamily: FontFamily,
+    fontWeight: FontWeight,
+    fontStyle: FontStyle,
     fontScale: Float,
     fontColor: Color,
 ) {
@@ -343,15 +373,18 @@ private fun PrayerSectionCard(
                 style = MaterialTheme.typography.titleMedium.copy(
                     color = fontColor,
                     fontFamily = fontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontStyle = fontStyle,
                     fontSize = MaterialTheme.typography.titleMedium.fontSize * fontScale,
                 ),
-                fontWeight = FontWeight.Bold,
             )
             Text(
                 section.content.replace("\\n", "\n"),
                 style = MaterialTheme.typography.bodyLarge.copy(
                     color = fontColor,
                     fontFamily = fontFamily,
+                    fontWeight = fontWeight,
+                    fontStyle = fontStyle,
                     fontSize = MaterialTheme.typography.bodyLarge.fontSize * fontScale,
                 ),
                 textAlign = TextAlign.Start,

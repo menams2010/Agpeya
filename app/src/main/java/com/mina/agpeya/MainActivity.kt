@@ -88,6 +88,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
@@ -105,6 +106,7 @@ import com.mina.agpeya.data.PrayerPreference
 import com.mina.agpeya.data.PrayerSection
 import com.mina.agpeya.data.PrayerSpec
 import com.mina.agpeya.data.ReaderFontFamily
+import com.mina.agpeya.data.ReaderFontStyle
 import com.mina.agpeya.data.ReaderFontSettings
 import com.mina.agpeya.data.PsalmMode
 import java.util.Locale
@@ -310,6 +312,7 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                                 readerFontSettings = readerFontSettings,
                                 onReaderFontScaleChanged = viewModel::setReaderFontScale,
                                 onReaderFontFamilyChanged = viewModel::setReaderFontFamily,
+                                onReaderFontStyleChanged = viewModel::setReaderFontStyle,
                                 onReaderFontColorChanged = viewModel::setReaderFontColor,
                                 onAlarmEnabled = viewModel::setAlarmEnabled,
                                 onTimeChanged = viewModel::setTime,
@@ -356,6 +359,7 @@ private fun SettingsScreen(
     readerFontSettings: ReaderFontSettings,
     onReaderFontScaleChanged: (Float) -> Unit,
     onReaderFontFamilyChanged: (ReaderFontFamily) -> Unit,
+    onReaderFontStyleChanged: (ReaderFontStyle) -> Unit,
     onReaderFontColorChanged: (Int) -> Unit,
     onAlarmEnabled: (String, Boolean) -> Unit,
     onTimeChanged: (String, String) -> Unit,
@@ -388,6 +392,7 @@ private fun SettingsScreen(
                 settings = readerFontSettings,
                 onScaleChanged = onReaderFontScaleChanged,
                 onFamilyChanged = onReaderFontFamilyChanged,
+                onStyleChanged = onReaderFontStyleChanged,
                 onColorChanged = onReaderFontColorChanged,
             )
         }
@@ -452,6 +457,7 @@ private fun ReaderFontSettingsCard(
     settings: ReaderFontSettings,
     onScaleChanged: (Float) -> Unit,
     onFamilyChanged: (ReaderFontFamily) -> Unit,
+    onStyleChanged: (ReaderFontStyle) -> Unit,
     onColorChanged: (Int) -> Unit,
 ) {
     var scale by remember(settings.scale) { mutableFloatStateOf(settings.scale) }
@@ -460,6 +466,14 @@ private fun ReaderFontSettingsCard(
         ReaderFontFamily.DEFAULT -> FontFamily.Default
         ReaderFontFamily.SERIF -> FontFamily.Serif
         ReaderFontFamily.MONOSPACE -> FontFamily.Monospace
+    }
+    val fontWeight = when (settings.style) {
+        ReaderFontStyle.REGULAR, ReaderFontStyle.ITALIC -> FontWeight.Normal
+        ReaderFontStyle.BOLD, ReaderFontStyle.BOLD_ITALIC -> FontWeight.Bold
+    }
+    val fontStyle = when (settings.style) {
+        ReaderFontStyle.REGULAR, ReaderFontStyle.BOLD -> FontStyle.Normal
+        ReaderFontStyle.ITALIC, ReaderFontStyle.BOLD_ITALIC -> FontStyle.Italic
     }
     val selectedColor = Color(settings.color)
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -491,6 +505,25 @@ private fun ReaderFontSettingsCard(
                     Text(label)
                 }
             }
+            Text("نمط الخط", style = MaterialTheme.typography.titleSmall)
+            ReaderFontStyle.entries.forEach { style ->
+                val label = when (style) {
+                    ReaderFontStyle.REGULAR -> "عادي"
+                    ReaderFontStyle.BOLD -> "عريض"
+                    ReaderFontStyle.ITALIC -> "مائل"
+                    ReaderFontStyle.BOLD_ITALIC -> "عريض ومائل"
+                }
+                Row(
+                    Modifier.fillMaxWidth().clickable { onStyleChanged(style) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = settings.style == style,
+                        onClick = { onStyleChanged(style) },
+                    )
+                    Text(label)
+                }
+            }
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -511,6 +544,8 @@ private fun ReaderFontSettingsCard(
                 style = MaterialTheme.typography.bodyLarge.copy(
                     color = selectedColor,
                     fontFamily = fontFamily,
+                    fontWeight = fontWeight,
+                    fontStyle = fontStyle,
                     fontSize = MaterialTheme.typography.bodyLarge.fontSize * scale,
                 ),
             )
