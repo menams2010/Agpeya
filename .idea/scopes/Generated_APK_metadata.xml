@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="Generated APK metadata" pattern="file:app/debug/output-metadata.json||file:app/release/output-metadata.json" />
+</component>

@@ -10,6 +10,7 @@ import com.mina.agpeya.data.PrayerPreference
 import com.mina.agpeya.data.PrayerSection
 import com.mina.agpeya.data.PrayerSettingsRepository
 import com.mina.agpeya.data.ReaderFontFamily
+import com.mina.agpeya.data.ReaderBackground
 import com.mina.agpeya.data.ReaderFontStyle
 import com.mina.agpeya.data.ReaderFontSettings
 import com.mina.agpeya.data.PrayerSpec
@@ -58,6 +59,64 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
+
+    private val _settingsDraft = MutableStateFlow<SettingsDraft?>(null)
+    val settingsDraft = _settingsDraft.asStateFlow()
+    private val _savingSettings = MutableStateFlow(false)
+    val savingSettings = _savingSettings.asStateFlow()
+    private val _settingsChanged = MutableStateFlow(false)
+    val settingsChanged = _settingsChanged.asStateFlow()
+    private var savedDraft: SettingsDraft? = null
+
+    fun beginEditingSettings() = updateSettings {
+        if (_settingsDraft.value == null) {
+            val draft = SettingsDraft(
+                repository.settings.first(),
+                repository.readerFontSettings.first(),
+                repository.pagedReading.first(),
+            )
+            savedDraft = draft
+            _settingsDraft.value = draft
+        }
+    }
+
+    fun cancelSettings() {
+        if (!_savingSettings.value) {
+            _settingsDraft.value = savedDraft
+            _settingsChanged.value = false
+        }
+    }
+
+    fun endEditingSettings() {
+        if (!_savingSettings.value) {
+            _settingsDraft.value = null
+            savedDraft = null
+            _settingsChanged.value = false
+        }
+    }
+
+    fun saveSettings() {
+        val draft = _settingsDraft.value ?: return
+        if (_savingSettings.value) return
+        _savingSettings.value = true
+        viewModelScope.launch {
+            try {
+                repository.saveSettings(draft.prayers, draft.font, draft.pagedReading)
+                savedDraft = draft
+                _settingsChanged.value = false
+            } catch (error: Exception) {
+                reportError("Unable to save prayer settings", error)
+            } finally {
+                _savingSettings.value = false
+            }
+        }
+    }
+
+    private fun editDraft(transform: (SettingsDraft) -> SettingsDraft) {
+        if (_savingSettings.value) return
+        _settingsDraft.value = _settingsDraft.value?.let(transform)
+        _settingsChanged.value = _settingsDraft.value != savedDraft
+    }
 
     init {
         viewModelScope.launch {
@@ -117,24 +176,40 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
         _reading.value = null
     }
 
-    fun setPagedReading(paged: Boolean) = updateSettings {
-        repository.setPagedReading(paged)
+    fun setPagedReading(paged: Boolean) = editDraft {
+        it.copy(pagedReading = paged)
     }
 
-    fun setReaderFontScale(scale: Float) = updateSettings {
-        repository.setReaderFontScale(scale)
+    fun setReaderFontScale(scale: Float) = editDraft {
+        it.copy(font = it.font.copy(scale = scale.coerceIn(0.8f, 1.6f)))
     }
 
-    fun setReaderFontFamily(family: ReaderFontFamily) = updateSettings {
-        repository.setReaderFontFamily(family)
+    fun setReaderFontFamily(family: ReaderFontFamily) = editDraft {
+        it.copy(font = it.font.copy(family = family))
     }
 
-    fun setReaderFontStyle(style: ReaderFontStyle) = updateSettings {
-        repository.setReaderFontStyle(style)
+    fun setReaderFontStyle(style: ReaderFontStyle) = editDraft {
+        it.copy(font = it.font.copy(style = style))
     }
 
-    fun setReaderFontColor(color: Int) = updateSettings {
-        repository.setReaderFontColor(color)
+    fun setReaderFontColor(color: Int) = editDraft {
+        it.copy(font = it.font.copy(color = color))
+    }
+
+    fun setReaderShadowColor(color: Int?) = editDraft {
+        it.copy(font = it.font.copy(shadowColor = color))
+    }
+
+    fun setBackgroundTransparency(transparency: Float) = editDraft {
+        it.copy(font = it.font.copy(backgroundTransparency = transparency.coerceIn(0f, 1f)))
+    }
+
+    fun setBackgroundContrast(contrast: Float) = editDraft {
+        it.copy(font = it.font.copy(backgroundContrast = contrast.coerceIn(0.5f, 2f)))
+    }
+
+    fun setBackground(background: ReaderBackground) = editDraft {
+        it.copy(font = it.font.copy(background = background))
     }
 
     fun refreshSchedules() {
@@ -147,44 +222,49 @@ class AgpeyaViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun setAlarmEnabled(prayerKey: String, enabled: Boolean) = updateSettings {
-        repository.setAlarmEnabled(prayerKey, enabled)
+    fun setAlarmEnabled(prayerKey: String, enabled: Boolean) = editDraft {
+        it.updatePrayer(prayerKey) { prayer -> prayer.copy(enabled = enabled) }
     }
 
-    fun setTime(prayerKey: String, time: String) = updateSettings {
-        repository.setTime(prayerKey, time)
+    fun setTime(prayerKey: String, time: String) = editDraft {
+        it.updatePrayer(prayerKey) { prayer -> prayer.copy(time = time) }
     }
 
-    fun setVolume(prayerKey: String, volume: Float) = updateSettings {
-        repository.setVolume(prayerKey, volume)
+    fun setVolume(prayerKey: String, volume: Float) = editDraft {
+        it.updatePrayer(prayerKey) { prayer -> prayer.copy(volume = volume.coerceIn(0f, 1f)) }
     }
 
-    fun setSoundUri(prayerKey: String, soundUri: String?) = updateSettings {
-        repository.setSoundUri(prayerKey, soundUri)
+    fun setSoundUri(prayerKey: String, soundUri: String?) = editDraft {
+        it.updatePrayer(prayerKey) { prayer -> prayer.copy(soundUri = soundUri) }
     }
 
-    fun setPsalmMode(prayerKey: String, mode: PsalmMode) = updateSettings {
-        repository.setPsalmMode(prayerKey, mode)
+    fun setPsalmMode(prayerKey: String, mode: PsalmMode) = editDraft {
+        it.updatePrayer(prayerKey) { prayer -> prayer.copy(psalmMode = mode) }
     }
 
-    fun setPsalmCount(prayerKey: String, count: Int) = updateSettings {
-        repository.setPsalmCount(prayerKey, count)
+    fun setPsalmCount(prayerKey: String, count: Int) = editDraft {
+        it.updatePrayer(prayerKey) { prayer -> prayer.copy(psalmCount = count.coerceAtLeast(1)) }
     }
 
-    fun setSequentialGroup(prayerKey: String, offset: Int) = updateSettings {
-        repository.setSequentialOffset(prayerKey, offset)
+    fun setSequentialGroup(prayerKey: String, offset: Int) = editDraft {
+        it.updatePrayer(prayerKey) { prayer -> prayer.copy(sequentialOffset = offset.coerceAtLeast(0)) }
     }
 
-    fun toggleFixedPsalm(prayerKey: String, psalmKey: String) = updateSettings {
-        val current = settings.value.firstOrNull { it.key == prayerKey }?.fixedPsalmKeys.orEmpty()
-        repository.setFixedPsalms(
-            prayerKey,
-            if (psalmKey in current) current - psalmKey else current + psalmKey,
-        )
+    fun toggleFixedPsalm(prayerKey: String, psalmKey: String) = editDraft {
+        it.updatePrayer(prayerKey) { prayer ->
+            val current = prayer.fixedPsalmKeys
+            prayer.copy(fixedPsalmKeys = if (psalmKey in current) current - psalmKey else current + psalmKey)
+        }
     }
 
-    fun resetPsalms(prayerKey: String) = updateSettings {
-        repository.resetPsalms(prayerKey)
+    fun resetPsalms(prayerKey: String) = editDraft {
+        it.updatePrayer(prayerKey) { prayer ->
+            prayer.copy(psalmMode = PsalmMode.ALL, psalmCount = 5, fixedPsalmKeys = emptySet(), sequentialOffset = 0)
+        }
+    }
+
+    fun applyToAll(prayerKey: String) = editDraft {
+        it.applyToAll(prayerKey)
     }
 
     fun clearError() {

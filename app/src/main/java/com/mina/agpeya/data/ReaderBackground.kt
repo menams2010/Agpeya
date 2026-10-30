@@ -1,0 +1,42 @@
+package com.mina.agpeya.data
+
+import androidx.annotation.DrawableRes
+import com.mina.agpeya.R
+
+enum class ReaderBackground(@param:DrawableRes val image: Int) {
+    INCENSE(R.drawable.background_photo),
+    SHEPHERD(R.drawable.background_option_01),
+    LAMB(R.drawable.background_option_02),
+    EMBRACE(R.drawable.background_option_03),
+    COMFORT(R.drawable.background_option_04),
+    GOLDEN_EMBRACE(R.drawable.background_option_05),
+    RED_ROBE(R.drawable.background_option_06),
+    CHILD_EMBRACE(R.drawable.background_option_07),
+    WALKING_PATH(R.drawable.background_option_08),
+    ROBE_HEM(R.drawable.background_option_09),
+    LAKESIDE(R.drawable.background_option_10),
+    FLOWER_FIELD(R.drawable.background_option_11),
+    HEAVENLY_LIGHT(R.drawable.background_option_12),
+    WATERCOLOR_CHILD(R.drawable.background_option_13),
+    BLUE_TREE(R.drawable.background_option_14),
+    BLUE_LIGHT(R.drawable.background_option_15),
+    PRAYING_HANDS(R.drawable.background_option_16),
+    SOFT_FABRIC(R.drawable.background_option_17),
+    HEALING_HEART(R.drawable.background_option_18),
+    DIVINE_MERCY(R.drawable.background_option_19),
+    WATERCOLOR_CROSS(R.drawable.background_option_20),
+    PINK_CROSS(R.drawable.background_option_21),
+    SILK_CROSS(R.drawable.background_option_22),
+    MOUNTAIN_CROSS(R.drawable.background_option_23),
+    CHILDREN_UNDER_TREE(R.drawable.background_option_24),
+    TEACHING_CHILDREN(R.drawable.background_option_25),
+    DISCIPLES(R.drawable.background_option_26),
+    FLORAL_WREATH(R.drawable.background_option_27),
+    OPEN_ARMS(R.drawable.background_option_28),
+    MARY(R.drawable.background_option_29),
+    HILL_CROSS(R.drawable.background_option_30),
+    SUNRISE_CROSS(R.drawable.background_option_31),
+    CHURCH(R.drawable.background_option_32),
+    FLORAL_CROSS(R.drawable.background_option_33),
+    INCENSE_HIGH_CONTRAST(R.drawable.background_option_34),
+}

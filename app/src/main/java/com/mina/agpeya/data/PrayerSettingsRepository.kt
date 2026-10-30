@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.map
 
 private val Context.settingsDataStore by preferencesDataStore(name = "prayer_settings")
 
+private const val DEFAULT_READER_FONT_COLOR: Int = 0xFFFAF8F3.toInt()
+
 enum class PsalmMode {
     RANDOM,
     SEQUENTIAL,
@@ -36,7 +38,11 @@ data class ReaderFontSettings(
     val scale: Float = 1f,
     val family: ReaderFontFamily = ReaderFontFamily.SERIF,
     val style: ReaderFontStyle = ReaderFontStyle.REGULAR,
-    val color: Int = 0xFF332B25.toInt(),
+    val color: Int = DEFAULT_READER_FONT_COLOR,
+    val backgroundTransparency: Float = 0.65f,
+    val backgroundContrast: Float = 1f,
+    val shadowColor: Int? = null,
+    val background: ReaderBackground = ReaderBackground.INCENSE,
 )
 
 data class PrayerPreference(
@@ -53,6 +59,42 @@ data class PrayerPreference(
 
 class PrayerSettingsRepository(context: Context) {
     private val dataStore = context.applicationContext.settingsDataStore
+
+    suspend fun saveSettings(
+        prayers: List<PrayerPreference>,
+        font: ReaderFontSettings,
+        pagedReading: Boolean,
+    ) {
+        dataStore.edit { preferences ->
+            preferences[booleanPreferencesKey("paged_reading")] = pagedReading
+            prayers.forEach { prayer ->
+                val id = prayer.key
+                preferences[booleanPreferencesKey("${id}_enabled")] = prayer.enabled
+                preferences[stringPreferencesKey("${id}_time")] = prayer.time
+                preferences[floatPreferencesKey("${id}_volume")] = prayer.volume.coerceIn(0f, 1f)
+                preferences[stringPreferencesKey("${id}_psalm_mode")] = prayer.psalmMode.name
+                preferences[intPreferencesKey("${id}_psalm_count")] = prayer.psalmCount.coerceAtLeast(1)
+                preferences[stringPreferencesKey("${id}_fixed_psalms")] =
+                    prayer.fixedPsalmKeys.sorted().joinToString("|")
+                preferences[intPreferencesKey("${id}_sequential_offset")] = prayer.sequentialOffset
+                val soundKey = stringPreferencesKey("${id}_sound_uri")
+                if (prayer.soundUri == null) preferences.remove(soundKey)
+                else preferences[soundKey] = prayer.soundUri
+            }
+            preferences[floatPreferencesKey("reader_font_scale")] = font.scale.coerceIn(0.8f, 1.6f)
+            preferences[stringPreferencesKey("reader_font_family")] = font.family.name
+            preferences[stringPreferencesKey("reader_font_style")] = font.style.name
+            preferences[intPreferencesKey("reader_font_color")] = font.color
+            preferences[stringPreferencesKey("reader_background")] = font.background.name
+            val shadowKey = intPreferencesKey("reader_shadow_color")
+            if (font.shadowColor == null) preferences.remove(shadowKey)
+            else preferences[shadowKey] = font.shadowColor
+            preferences[floatPreferencesKey("reader_background_transparency")] =
+                font.backgroundTransparency.coerceIn(0f, 1f)
+            preferences[floatPreferencesKey("reader_background_contrast")] =
+                font.backgroundContrast.coerceIn(0.5f, 2f)
+        }
+    }
 
     val settings: Flow<List<PrayerPreference>> = dataStore.data.map { preferences ->
         PrayerCatalog.canonicalPrayers.map { spec ->
@@ -94,71 +136,18 @@ class PrayerSettingsRepository(context: Context) {
             style = preferences[stringPreferencesKey("reader_font_style")]
                 ?.let { stored -> ReaderFontStyle.entries.firstOrNull { it.name == stored } }
                 ?: ReaderFontStyle.REGULAR,
-            color = preferences[intPreferencesKey("reader_font_color")] ?: 0xFF332B25.toInt(),
+            color = preferences[intPreferencesKey("reader_font_color")] ?: DEFAULT_READER_FONT_COLOR,
+            shadowColor = preferences[intPreferencesKey("reader_shadow_color")],
+            background = preferences[stringPreferencesKey("reader_background")]
+                ?.let { stored -> ReaderBackground.entries.firstOrNull { it.name == stored } }
+                ?: ReaderBackground.INCENSE,
+            backgroundTransparency =
+                (preferences[floatPreferencesKey("reader_background_transparency")] ?: 0.65f)
+                    .coerceIn(0f, 1f),
+            backgroundContrast =
+                (preferences[floatPreferencesKey("reader_background_contrast")] ?: 1f)
+                    .coerceIn(0.5f, 2f),
         )
-    }
-
-    suspend fun setReaderFontScale(scale: Float) {
-        dataStore.edit {
-            it[floatPreferencesKey("reader_font_scale")] = scale.coerceIn(0.8f, 1.6f)
-        }
-    }
-
-    suspend fun setReaderFontFamily(family: ReaderFontFamily) {
-        dataStore.edit {
-            it[stringPreferencesKey("reader_font_family")] = family.name
-        }
-    }
-
-    suspend fun setReaderFontStyle(style: ReaderFontStyle) {
-        dataStore.edit {
-            it[stringPreferencesKey("reader_font_style")] = style.name
-        }
-    }
-
-    suspend fun setReaderFontColor(color: Int) {
-        dataStore.edit {
-            it[intPreferencesKey("reader_font_color")] = color
-        }
-    }
-
-    suspend fun setPagedReading(paged: Boolean) {
-        dataStore.edit { it[booleanPreferencesKey("paged_reading")] = paged }
-    }
-
-    suspend fun setAlarmEnabled(prayerKey: String, enabled: Boolean) {
-        dataStore.edit { it[booleanPreferencesKey("${prayerKey}_enabled")] = enabled }
-    }
-
-    suspend fun setTime(prayerKey: String, time: String) {
-        dataStore.edit { it[stringPreferencesKey("${prayerKey}_time")] = time }
-    }
-
-    suspend fun setVolume(prayerKey: String, volume: Float) {
-        dataStore.edit {
-            it[floatPreferencesKey("${prayerKey}_volume")] = volume.coerceIn(0f, 1f)
-        }
-    }
-
-    suspend fun setSoundUri(prayerKey: String, soundUri: String?) {
-        dataStore.edit {
-            val key = stringPreferencesKey("${prayerKey}_sound_uri")
-            if (soundUri == null) it.remove(key) else it[key] = soundUri
-        }
-    }
-
-    suspend fun setPsalmMode(prayerKey: String, mode: PsalmMode) {
-        dataStore.edit { it[stringPreferencesKey("${prayerKey}_psalm_mode")] = mode.name }
-    }
-
-    suspend fun setPsalmCount(prayerKey: String, count: Int) {
-        dataStore.edit { it[intPreferencesKey("${prayerKey}_psalm_count")] = count.coerceAtLeast(1) }
-    }
-
-    suspend fun setFixedPsalms(prayerKey: String, keys: Set<String>) {
-        dataStore.edit {
-            it[stringPreferencesKey("${prayerKey}_fixed_psalms")] = keys.sorted().joinToString("|")
-        }
     }
 
     suspend fun setSequentialOffset(prayerKey: String, offset: Int) {
@@ -167,12 +156,4 @@ class PrayerSettingsRepository(context: Context) {
         }
     }
 
-    suspend fun resetPsalms(prayerKey: String) {
-        dataStore.edit {
-            it.remove(stringPreferencesKey("${prayerKey}_psalm_mode"))
-            it.remove(intPreferencesKey("${prayerKey}_psalm_count"))
-            it.remove(stringPreferencesKey("${prayerKey}_fixed_psalms"))
-            it.remove(intPreferencesKey("${prayerKey}_sequential_offset"))
-        }
-    }
 }

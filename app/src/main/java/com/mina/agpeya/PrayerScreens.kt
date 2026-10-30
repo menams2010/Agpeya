@@ -2,11 +2,14 @@ package com.mina.agpeya
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,7 +30,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerState
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,7 +47,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
@@ -59,6 +65,17 @@ import com.mina.agpeya.data.ReaderFontSettings
 import com.mina.agpeya.data.PrayerSection
 import com.mina.agpeya.data.PrayerSpec
 import kotlinx.coroutines.launch
+
+@Composable
+internal fun readerTextShadow(color: Color, shadowColor: Int? = null): Shadow = with(LocalDensity.current) {
+    Shadow(
+        color = if (shadowColor != null) Color(shadowColor)
+        else if (color.luminance() > 0.5f) Color.Black.copy(alpha = 0.9f)
+        else Color.White.copy(alpha = 0.9f),
+        offset = Offset(0f, 1.dp.toPx()),
+        blurRadius = 2.dp.toPx(),
+    )
+}
 
 @Composable
 internal fun HomeScreen(
@@ -136,7 +153,16 @@ internal fun PrayerNavigationDrawer(
     selectedPrayerKey: String?,
     onOpenPrayer: (String) -> Unit,
 ) {
-    ModalDrawerSheet(Modifier.widthIn(max = 340.dp)) {
+    ModalDrawerSheet(
+        Modifier.widthIn(max = 340.dp),
+        drawerShape = RoundedCornerShape(
+            topStart = 16.dp,
+            bottomStart = 16.dp,
+            topEnd = 0.dp,
+            bottomEnd = 0.dp,
+        ),
+        windowInsets = WindowInsets(0, 0, 0, 0),
+    ) {
         LazyColumn(contentPadding = PaddingValues(12.dp)) {
             item {
                 Text(
@@ -176,7 +202,6 @@ internal fun ReadingScreen(
     drawerState: DrawerState,
     paged: Boolean,
     fontSettings: ReaderFontSettings,
-    onPagedChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val fontFamily = when (fontSettings.family) {
@@ -208,7 +233,7 @@ internal fun ReadingScreen(
             fontStyle,
             fontSettings.scale,
             Color(fontSettings.color),
-            onPagedChanged,
+            readerTextShadow(Color(fontSettings.color), fontSettings.shadowColor),
             modifier,
         )
     }
@@ -224,7 +249,7 @@ private fun PrayerReader(
     fontStyle: FontStyle,
     fontScale: Float,
     fontColor: Color,
-    onPagedChanged: (Boolean) -> Unit,
+    textShadow: Shadow,
     modifier: Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -234,7 +259,10 @@ private fun PrayerReader(
         drawerState = drawerState,
         modifier = modifier.fillMaxSize(),
         drawerContent = {
-            ModalDrawerSheet(Modifier.widthIn(max = 340.dp)) {
+            ModalDrawerSheet(
+                Modifier.widthIn(max = 340.dp),
+                windowInsets = WindowInsets(0, 0, 0, 0),
+            ) {
                 LazyColumn(contentPadding = PaddingValues(12.dp)) {
                     item {
                         Text(
@@ -273,31 +301,6 @@ private fun PrayerReader(
         },
     ) {
         Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilterChip(
-                    selected = !paged,
-                    onClick = {
-                        if (paged) {
-                            scope.launch { listState.scrollToItem(pagerState.currentPage) }
-                            onPagedChanged(false)
-                        }
-                    },
-                    label = { Text("تمرير متصل") },
-                )
-                FilterChip(
-                    selected = paged,
-                    onClick = {
-                        if (!paged) {
-                            scope.launch { pagerState.scrollToPage(listState.firstVisibleItemIndex) }
-                            onPagedChanged(true)
-                        }
-                    },
-                    label = { Text("صفحة بصفحة") },
-                )
-            }
             if (paged) {
                 HorizontalPager(
                     state = pagerState,
@@ -313,11 +316,13 @@ private fun PrayerReader(
                             fontStyle,
                             fontScale,
                             fontColor,
+                            textShadow,
                         )
                     }
                 }
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -346,6 +351,7 @@ private fun PrayerReader(
                             fontStyle,
                             fontScale,
                             fontColor,
+                            textShadow,
                         )
                     }
                 }
@@ -362,6 +368,7 @@ private fun PrayerSectionCard(
     fontStyle: FontStyle,
     fontScale: Float,
     fontColor: Color,
+    textShadow: Shadow,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
@@ -376,6 +383,7 @@ private fun PrayerSectionCard(
                     fontWeight = FontWeight.Bold,
                     fontStyle = fontStyle,
                     fontSize = MaterialTheme.typography.titleMedium.fontSize * fontScale,
+                    shadow = textShadow,
                 ),
             )
             Text(
@@ -386,6 +394,7 @@ private fun PrayerSectionCard(
                     fontWeight = fontWeight,
                     fontStyle = fontStyle,
                     fontSize = MaterialTheme.typography.bodyLarge.fontSize * fontScale,
+                    shadow = textShadow,
                 ),
                 textAlign = TextAlign.Start,
             )

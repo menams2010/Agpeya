@@ -32,8 +32,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
@@ -50,6 +53,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -63,6 +67,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -73,17 +78,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
@@ -106,6 +112,7 @@ import com.mina.agpeya.data.PrayerPreference
 import com.mina.agpeya.data.PrayerSection
 import com.mina.agpeya.data.PrayerSpec
 import com.mina.agpeya.data.ReaderFontFamily
+import com.mina.agpeya.data.ReaderBackground
 import com.mina.agpeya.data.ReaderFontStyle
 import com.mina.agpeya.data.ReaderFontSettings
 import com.mina.agpeya.data.PsalmMode
@@ -138,7 +145,9 @@ class MainActivity : ComponentActivity() {
 private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
     val context = LocalContext.current
     val view = LocalView.current
-    val settings by viewModel.settings.collectAsState()
+    val settingsDraft by viewModel.settingsDraft.collectAsState()
+    val savingSettings by viewModel.savingSettings.collectAsState()
+    val settingsChanged by viewModel.settingsChanged.collectAsState()
     val pagedReading by viewModel.pagedReading.collectAsState()
     val readerFontSettings by viewModel.readerFontSettings.collectAsState()
     val groups by viewModel.groups.collectAsState()
@@ -153,6 +162,37 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val sectionsDrawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var pendingNavigation by remember { mutableStateOf<(() -> Unit)?>(null) }
+    fun navigate(action: () -> Unit) {
+        if (savingSettings) return
+        if (settingsChanged) {
+            pendingNavigation = action
+        } else {
+            viewModel.endEditingSettings()
+            action()
+        }
+    }
+    LaunchedEffect(selectedTab, reading == null) {
+        if (selectedTab == 1 && reading == null) viewModel.beginEditingSettings()
+    }
+    if (pendingNavigation != null) {
+        AlertDialog(
+            onDismissRequest = { pendingNavigation = null },
+            title = { Text("تغييرات غير محفوظة") },
+            text = { Text("احفظ التغييرات من شاشة الإعدادات أو تجاهلها للمتابعة.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val action = pendingNavigation
+                    pendingNavigation = null
+                    viewModel.endEditingSettings()
+                    action?.invoke()
+                }) { Text("تجاهل التغييرات") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingNavigation = null }) { Text("متابعة التعديل") }
+            },
+        )
+    }
     DisposableEffect(view, reading != null) {
         val isReading = reading != null
         val wasKeepingScreenOn = view.keepScreenOn
@@ -205,29 +245,22 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
         sectionsDrawerState.close()
     }
 
-    BackHandler(enabled = reading != null || selectedTab != 0) {
-        viewModel.closeReading()
-        selectedTab = 0
-        settingsPrayer = null
+    BackHandler(enabled = drawerState.isOpen || sectionsDrawerState.isOpen || reading != null || selectedTab != 0) {
+        if (drawerState.isOpen || sectionsDrawerState.isOpen) {
+            scope.launch {
+                drawerState.close()
+                sectionsDrawerState.close()
+            }
+            return@BackHandler
+        }
+        navigate {
+            viewModel.closeReading()
+            selectedTab = 0
+            settingsPrayer = null
+        }
     }
 
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            drawerContent = {
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    PrayerNavigationDrawer(
-                        prayerGroups = groups,
-                        selectedPrayerKey = reading?.prayer?.key,
-                        onOpenPrayer = { prayerKey ->
-                            scope.launch { drawerState.close() }
-                            viewModel.openPrayer(prayerKey)
-                        },
-                    )
-                }
-            },
-        ) {
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 Scaffold(
                     containerColor = Color.Transparent,
                     topBar = {
@@ -235,7 +268,15 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                             title = { Text(reading?.prayer?.title ?: "الأجبية") },
                             navigationIcon = {
                                 if (reading != null) {
-                                    IconButton(onClick = { scope.launch { sectionsDrawerState.open() } }) {
+                                    IconButton(onClick = {
+                                        scope.launch {
+                                            if (sectionsDrawerState.isOpen) sectionsDrawerState.close()
+                                            else {
+                                                drawerState.close()
+                                                sectionsDrawerState.open()
+                                            }
+                                        }
+                                    }) {
                                         Icon(
                                             painterResource(R.drawable.ic_menu),
                                             contentDescription = "أجزاء الصلاة",
@@ -249,7 +290,15 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                                         Text("رجوع")
                                     }
                                 }
-                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        if (drawerState.isOpen) drawerState.close()
+                                        else {
+                                            sectionsDrawerState.close()
+                                            drawerState.open()
+                                        }
+                                    }
+                                }) {
                                     Icon(
                                         painterResource(R.drawable.ic_menu),
                                         contentDescription = "قائمة الصلوات",
@@ -263,7 +312,7 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                             NavigationBar {
                                 NavigationBarItem(
                                     selected = selectedTab == 0,
-                                    onClick = { selectedTab = 0 },
+                                    onClick = { navigate { selectedTab = 0 } },
                                     icon = { Text("☼") },
                                     label = { Text("الصلوات") },
                                 )
@@ -281,22 +330,50 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                     },
                     snackbarHost = { SnackbarHost(snackbars) },
                 ) { padding ->
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        ModalNavigationDrawer(
+                            drawerState = drawerState,
+                            modifier = Modifier.fillMaxSize().padding(padding),
+                            gesturesEnabled = !sectionsDrawerState.isOpen,
+                            drawerContent = {
+                                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                                    PrayerNavigationDrawer(
+                                        prayerGroups = groups,
+                                        selectedPrayerKey = reading?.prayer?.key,
+                                        onOpenPrayer = { prayerKey ->
+                                            scope.launch { drawerState.close() }
+                                            navigate { viewModel.openPrayer(prayerKey) }
+                                        },
+                                    )
+                                }
+                            },
+                        ) {
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                     Box(Modifier.fillMaxSize()) {
                         Image(
-                            painter = painterResource(R.drawable.background_photo),
+                            painter = painterResource(readerFontSettings.background.image),
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
-                            alpha = 0.3f,
+                            alpha = if (reading != null) 1f else 0.3f,
+                            colorFilter = if (reading != null) {
+                                backgroundContrastFilter(readerFontSettings.backgroundContrast)
+                            } else null,
                             modifier = Modifier.fillMaxSize(),
                         )
+                        if (reading != null) {
+                            Box(
+                                Modifier.fillMaxSize().background(
+                                    Color.Black.copy(alpha = readerFontSettings.backgroundTransparency),
+                                ),
+                            )
+                        }
                         when {
                             reading != null -> ReadingScreen(
                                 reading!!,
                                 sectionsDrawerState,
                                 pagedReading,
                                 readerFontSettings,
-                                viewModel::setPagedReading,
-                                Modifier.padding(padding),
+                                Modifier,
                             )
                             selectedTab == 0 -> HomeScreen(
                                 onOpenPrayer = viewModel::openPrayer,
@@ -304,16 +381,30 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                                     settingsPrayer = prayerKey
                                     selectedTab = 1
                                 },
-                                modifier = Modifier.padding(padding),
+                                modifier = Modifier,
                             )
+                            settingsDraft == null -> Box(
+                                Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) { CircularProgressIndicator() }
                             else -> SettingsScreen(
-                                settings = settings,
+                                settings = settingsDraft!!.prayers,
                                 psalmsByPrayer = psalmsByPrayer,
-                                readerFontSettings = readerFontSettings,
+                                readerFontSettings = settingsDraft!!.font,
+                                pagedReading = settingsDraft!!.pagedReading,
+                                onPagedReadingChanged = viewModel::setPagedReading,
+                                saving = savingSettings,
+                                changed = settingsChanged,
+                                onSave = viewModel::saveSettings,
+                                onCancel = viewModel::cancelSettings,
                                 onReaderFontScaleChanged = viewModel::setReaderFontScale,
                                 onReaderFontFamilyChanged = viewModel::setReaderFontFamily,
                                 onReaderFontStyleChanged = viewModel::setReaderFontStyle,
                                 onReaderFontColorChanged = viewModel::setReaderFontColor,
+                                onReaderShadowColorChanged = viewModel::setReaderShadowColor,
+                                onBackgroundTransparencyChanged = viewModel::setBackgroundTransparency,
+                                onBackgroundContrastChanged = viewModel::setBackgroundContrast,
+                                onBackgroundChanged = viewModel::setBackground,
                                 onAlarmEnabled = viewModel::setAlarmEnabled,
                                 onTimeChanged = viewModel::setTime,
                                 onVolumeChanged = viewModel::setVolume,
@@ -341,14 +432,16 @@ private fun AgpeyaApp(viewModel: AgpeyaViewModel, initialPrayerKey: String?) {
                                 onSequentialGroupSelected = viewModel::setSequentialGroup,
                                 onFixedPsalmToggled = viewModel::toggleFixedPsalm,
                                 onResetPsalms = viewModel::resetPsalms,
+                                onApplyToAll = viewModel::applyToAll,
                                 prayerKey = settingsPrayer,
-                                modifier = Modifier.padding(padding),
+                                modifier = Modifier,
                             )
                         }
                     }
+                    }
+                        }
+                    }
                 }
-            }
-        }
     }
 }
 
@@ -357,10 +450,20 @@ private fun SettingsScreen(
     settings: List<PrayerPreference>,
     psalmsByPrayer: Map<String, List<PrayerSection>>,
     readerFontSettings: ReaderFontSettings,
+    pagedReading: Boolean,
+    onPagedReadingChanged: (Boolean) -> Unit,
+    saving: Boolean,
+    changed: Boolean,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
     onReaderFontScaleChanged: (Float) -> Unit,
     onReaderFontFamilyChanged: (ReaderFontFamily) -> Unit,
     onReaderFontStyleChanged: (ReaderFontStyle) -> Unit,
     onReaderFontColorChanged: (Int) -> Unit,
+    onReaderShadowColorChanged: (Int?) -> Unit,
+    onBackgroundTransparencyChanged: (Float) -> Unit,
+    onBackgroundContrastChanged: (Float) -> Unit,
+    onBackgroundChanged: (ReaderBackground) -> Unit,
     onAlarmEnabled: (String, Boolean) -> Unit,
     onTimeChanged: (String, String) -> Unit,
     onVolumeChanged: (String, Float) -> Unit,
@@ -370,83 +473,201 @@ private fun SettingsScreen(
     onSequentialGroupSelected: (String, Int) -> Unit,
     onFixedPsalmToggled: (String, String) -> Unit,
     onResetPsalms: (String) -> Unit,
+    onApplyToAll: (String) -> Unit,
     prayerKey: String?,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     var expandedPrayer by rememberSaveable(prayerKey) { mutableStateOf(prayerKey) }
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
+    var generalExpanded by rememberSaveable { mutableStateOf(false) }
+    Column(modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(onClick = onSave, enabled = changed && !saving) {
+                Text(if (saving) "جارٍ الحفظ..." else "حفظ")
+            }
+            OutlinedButton(onClick = onCancel, enabled = changed && !saving) { Text("إلغاء") }
             Text(
-                "إعدادات التنبيهات والمزامير",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                if (changed) "تغييرات غير محفوظة" else "الإعدادات المحفوظة",
+                style = MaterialTheme.typography.bodySmall,
             )
         }
-        item {
-            ReaderFontSettingsCard(
-                settings = readerFontSettings,
-                onScaleChanged = onReaderFontScaleChanged,
-                onFamilyChanged = onReaderFontFamilyChanged,
-                onStyleChanged = onReaderFontStyleChanged,
-                onColorChanged = onReaderFontColorChanged,
-            )
-        }
-        item {
-            ReminderPermissionCard()
-        }
-        items(
-            settings.filter { prayerKey == null || it.key == prayerKey },
-            key = PrayerPreference::key,
-        ) { preference ->
-            val prayer = PrayerCatalog.canonicalPrayers.first { it.key == preference.key }
-            PrayerSettingsCard(
-                prayer = prayer,
-                preference = preference,
-                psalms = psalmsByPrayer[preference.key].orEmpty(),
-                expanded = expandedPrayer == preference.key,
-                onExpanded = {
-                    expandedPrayer = if (expandedPrayer == preference.key) null else preference.key
-                },
-                onAlarmEnabled = onAlarmEnabled,
-                onVolumeChanged = onVolumeChanged,
-                onPickSound = { onPickSound(preference) },
-                onPsalmModeChanged = onPsalmModeChanged,
-                onPsalmCountChanged = onPsalmCountChanged,
-                onSequentialGroupSelected = onSequentialGroupSelected,
-                onFixedPsalmToggled = onFixedPsalmToggled,
-                onResetPsalms = { onResetPsalms(preference.key) },
-                onPickTime = { current ->
-                    val parts = current.split(':').map(String::toInt)
-                    TimePickerDialog(
-                        context,
-                        { _, hour, minute ->
-                            onTimeChanged(
-                                preference.key,
-                                String.format(Locale.ROOT, "%02d:%02d", hour, minute),
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            userScrollEnabled = !saving,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Text(
+                    "إعدادات التنبيهات والمزامير",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            item {
+                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    TextButton(
+                        onClick = { generalExpanded = !generalExpanded },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(if (generalExpanded) "−" else "+")
+                            Text("الإعدادات العامة", textAlign = TextAlign.Start)
+                        }
+                    }
+                    if (generalExpanded) {
+                        Column(
+                            Modifier.padding(bottom = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                                Column(Modifier.padding(18.dp)) {
+                                    Text("أسلوب القراءة", style = MaterialTheme.typography.titleMedium)
+                                    listOf(false to "تمرير متصل", true to "صفحة بصفحة").forEach { (paged, label) ->
+                                        Row(
+                                            Modifier.fillMaxWidth().clickable { onPagedReadingChanged(paged) },
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            RadioButton(
+                                                selected = pagedReading == paged,
+                                                onClick = { onPagedReadingChanged(paged) },
+                                            )
+                                            Text(label)
+                                        }
+                                    }
+                                }
+                            }
+                            ReaderFontSettingsCard(
+                                settings = readerFontSettings,
+                                onScaleChanged = onReaderFontScaleChanged,
+                                onFamilyChanged = onReaderFontFamilyChanged,
+                                onStyleChanged = onReaderFontStyleChanged,
+                                onColorChanged = onReaderFontColorChanged,
+                                onShadowColorChanged = onReaderShadowColorChanged,
                             )
-                        },
-                        parts[0],
-                        parts[1],
-                        true,
-                    ).show()
-                },
-            )
-        }
-        item {
-            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("المزامنة السحابية", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "مزامنة Google Drive لم تُنفّذ بعد. يتطلب ربطها إعداد مشروع OAuth، " +
-                            "معرّف عميل ويب، وتسجيل بصمة توقيع التطبيق في Google Cloud.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                                Column(
+                                    Modifier.padding(18.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text("اختيار الخلفية", style = MaterialTheme.typography.titleMedium)
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(ReaderBackground.entries, key = { it.name }) { background ->
+                                            val selected = readerFontSettings.background == background
+                                            Column(
+                                                Modifier.widthIn(max = 88.dp)
+                                                    .selectable(
+                                                        selected = selected,
+                                                        role = Role.RadioButton,
+                                                        onClick = { onBackgroundChanged(background) },
+                                                    ),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                            ) {
+                                                Image(
+                                                    painterResource(background.image),
+                                                    contentDescription = "الخلفية ${background.ordinal + 1}",
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.size(80.dp, 112.dp)
+                                                        .clip(MaterialTheme.shapes.small)
+                                                        .border(
+                                                            if (selected) 3.dp else 1.dp,
+                                                            if (selected) MaterialTheme.colorScheme.primary
+                                                            else MaterialTheme.colorScheme.outline,
+                                                            MaterialTheme.shapes.small,
+                                                        ),
+                                                )
+                                                Text(
+                                                    if (selected) "مختارة" else "${background.ordinal + 1}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text("شفافية خلفية القراءة", style = MaterialTheme.typography.titleMedium)
+                                    Text("${(readerFontSettings.backgroundTransparency * 100).toInt()}٪")
+                                    Slider(
+                                        value = readerFontSettings.backgroundTransparency,
+                                        onValueChange = onBackgroundTransparencyChanged,
+                                        valueRange = 0f..1f,
+                                    )
+                                    Text(
+                                        "٠٪: صورة واضحة — ١٠٠٪: خلفية سوداء",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Text("تباين الخلفية: ${(readerFontSettings.backgroundContrast * 100).toInt()}٪")
+                                    Slider(
+                                        value = readerFontSettings.backgroundContrast,
+                                        onValueChange = onBackgroundContrastChanged,
+                                        valueRange = 0.5f..2f,
+                                    )
+                                    TextButton(onClick = { onBackgroundContrastChanged(1f) }) {
+                                        Text("التباين الافتراضي (١٠٠٪)")
+                                    }
+                                    ReaderAppearancePreview(readerFontSettings)
+                                }
+                            }
+                            ReminderPermissionCard()
+                            Column(
+                                Modifier.padding(horizontal = 18.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text("المزامنة السحابية", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "مزامنة Google Drive لم تُنفّذ بعد. يتطلب ربطها إعداد مشروع OAuth، " +
+                                        "معرّف عميل ويب، وتسجيل بصمة توقيع التطبيق في Google Cloud.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
+                    }
                 }
+            }
+            items(
+                settings.filter { prayerKey == null || it.key == prayerKey },
+                key = PrayerPreference::key,
+            ) { preference ->
+                val prayer = PrayerCatalog.canonicalPrayers.first { it.key == preference.key }
+                PrayerSettingsCard(
+                    prayer = prayer,
+                    preference = preference,
+                    psalms = psalmsByPrayer[preference.key].orEmpty(),
+                    expanded = expandedPrayer == preference.key,
+                    onExpanded = {
+                        expandedPrayer = if (expandedPrayer == preference.key) null else preference.key
+                    },
+                    onAlarmEnabled = onAlarmEnabled,
+                    onVolumeChanged = onVolumeChanged,
+                    onPickSound = { onPickSound(preference) },
+                    onPsalmModeChanged = onPsalmModeChanged,
+                    onPsalmCountChanged = onPsalmCountChanged,
+                    onSequentialGroupSelected = onSequentialGroupSelected,
+                    onFixedPsalmToggled = onFixedPsalmToggled,
+                    onResetPsalms = { onResetPsalms(preference.key) },
+                    onApplyToAll = { onApplyToAll(preference.key) },
+                    onPickTime = { current ->
+                        val parts = current.split(':').map(String::toInt)
+                        TimePickerDialog(
+                            context,
+                            { _, hour, minute ->
+                                onTimeChanged(
+                                    preference.key,
+                                    String.format(Locale.ROOT, "%02d:%02d", hour, minute),
+                                )
+                            },
+                            parts[0],
+                            parts[1],
+                            true,
+                        ).show()
+                    },
+                )
             }
         }
     }
@@ -459,22 +680,11 @@ private fun ReaderFontSettingsCard(
     onFamilyChanged: (ReaderFontFamily) -> Unit,
     onStyleChanged: (ReaderFontStyle) -> Unit,
     onColorChanged: (Int) -> Unit,
+    onShadowColorChanged: (Int?) -> Unit,
 ) {
     var scale by remember(settings.scale) { mutableFloatStateOf(settings.scale) }
     var showColorPicker by rememberSaveable { mutableStateOf(false) }
-    val fontFamily = when (settings.family) {
-        ReaderFontFamily.DEFAULT -> FontFamily.Default
-        ReaderFontFamily.SERIF -> FontFamily.Serif
-        ReaderFontFamily.MONOSPACE -> FontFamily.Monospace
-    }
-    val fontWeight = when (settings.style) {
-        ReaderFontStyle.REGULAR, ReaderFontStyle.ITALIC -> FontWeight.Normal
-        ReaderFontStyle.BOLD, ReaderFontStyle.BOLD_ITALIC -> FontWeight.Bold
-    }
-    val fontStyle = when (settings.style) {
-        ReaderFontStyle.REGULAR, ReaderFontStyle.BOLD -> FontStyle.Normal
-        ReaderFontStyle.ITALIC, ReaderFontStyle.BOLD_ITALIC -> FontStyle.Italic
-    }
+    var showShadowColorPicker by rememberSaveable { mutableStateOf(false) }
     val selectedColor = Color(settings.color)
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -482,8 +692,10 @@ private fun ReaderFontSettingsCard(
             Text("حجم الخط: ${(scale * 100).toInt()}٪")
             Slider(
                 value = scale,
-                onValueChange = { scale = it },
-                onValueChangeFinished = { onScaleChanged(scale) },
+                onValueChange = {
+                    scale = it
+                    onScaleChanged(it)
+                },
                 valueRange = 0.8f..1.6f,
                 steps = 7,
             )
@@ -539,16 +751,28 @@ private fun ReaderFontSettingsCard(
                     Text("اختيار اللون")
                 }
             }
-            Text(
-                "مثال على شكل نص القراءة",
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    color = selectedColor,
-                    fontFamily = fontFamily,
-                    fontWeight = fontWeight,
-                    fontStyle = fontStyle,
-                    fontSize = MaterialTheme.typography.bodyLarge.fontSize * scale,
-                ),
-            )
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("لون ظل النص", style = MaterialTheme.typography.titleSmall)
+                TextButton(onClick = { showShadowColorPicker = true }) {
+                    Box(
+                        Modifier.padding(end = 8.dp).size(24.dp)
+                            .background(readerTextShadow(selectedColor, settings.shadowColor).color, CircleShape)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                    )
+                    Text("اختيار اللون")
+                }
+            }
+            TextButton(
+                onClick = { onShadowColorChanged(null) },
+                enabled = settings.shadowColor != null,
+            ) {
+                Text("لون الظل التلقائي")
+            }
+            ReaderAppearancePreview(settings.copy(scale = scale))
         }
     }
     if (showColorPicker) {
@@ -561,6 +785,80 @@ private fun ReaderFontSettingsCard(
             },
         )
     }
+    if (showShadowColorPicker) {
+        ReaderColorPickerDialog(
+            initialColor = settings.shadowColor ?: if (selectedColor.luminance() > 0.5f) {
+                0xE6000000.toInt()
+            } else {
+                0xE6FFFFFF.toInt()
+            },
+            title = "اختيار لون ظل النص",
+            onDismiss = { showShadowColorPicker = false },
+            onColorSelected = {
+                onShadowColorChanged(it)
+                showShadowColorPicker = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun ReaderAppearancePreview(settings: ReaderFontSettings) {
+    val photo = painterResource(settings.background.image)
+    val scrollState = key(settings.background) { rememberScrollState() }
+    val color = Color(settings.color)
+    val family = when (settings.family) {
+        ReaderFontFamily.DEFAULT -> FontFamily.Default
+        ReaderFontFamily.SERIF -> FontFamily.Serif
+        ReaderFontFamily.MONOSPACE -> FontFamily.Monospace
+    }
+    val weight = when (settings.style) {
+        ReaderFontStyle.REGULAR, ReaderFontStyle.ITALIC -> FontWeight.Normal
+        ReaderFontStyle.BOLD, ReaderFontStyle.BOLD_ITALIC -> FontWeight.Bold
+    }
+    val style = when (settings.style) {
+        ReaderFontStyle.REGULAR, ReaderFontStyle.BOLD -> FontStyle.Normal
+        ReaderFontStyle.ITALIC, ReaderFontStyle.BOLD_ITALIC -> FontStyle.Italic
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "مرّر الصورة لأعلى ولأسفل لاختبار وضوح النص على جميع أجزاء الخلفية.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(
+            Modifier.fillMaxWidth().height(200.dp).clip(MaterialTheme.shapes.medium),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(Modifier.fillMaxSize().verticalScroll(scrollState)) {
+                Image(
+                    painter = photo,
+                    contentDescription = "معاينة خلفية القراءة",
+                    contentScale = ContentScale.FillWidth,
+                    colorFilter = backgroundContrastFilter(settings.backgroundContrast),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp)
+                        .aspectRatio(photo.intrinsicSize.width / photo.intrinsicSize.height),
+                )
+            }
+            Box(
+                Modifier.fillMaxSize().background(
+                    Color.Black.copy(alpha = settings.backgroundTransparency),
+                ),
+            )
+            Text(
+                "باسم الآب والابن والروح القدس\nمثال على شكل نص القراءة",
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    color = color,
+                    fontFamily = family,
+                    fontWeight = weight,
+                    fontStyle = style,
+                    fontSize = MaterialTheme.typography.bodyLarge.fontSize * settings.scale,
+                    shadow = readerTextShadow(color, settings.shadowColor),
+                ),
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
 }
 
 @Composable
@@ -568,6 +866,7 @@ private fun ReaderColorPickerDialog(
     initialColor: Int,
     onDismiss: () -> Unit,
     onColorSelected: (Int) -> Unit,
+    title: String = "اختيار لون الخط",
 ) {
     val initialHsv = remember(initialColor) { colorToHsv(initialColor) }
     var hue by remember(initialColor) { mutableFloatStateOf(initialHsv[0]) }
@@ -593,35 +892,55 @@ private fun ReaderColorPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("اختيار لون الخط") },
+        title = { Text(title) },
         text = {
             Column(
                 Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Box(
-                    Modifier.fillMaxWidth().height(40.dp)
-                        .background(Color(pickerColor), CircleShape),
-                )
                 HueColorWheel(
                     hue = hue,
                     saturation = saturation,
                     brightness = brightness,
-                    onColorChanged = { newHue, newSaturation, newBrightness ->
+                    onColorChanged = { newHue, newSaturation ->
                         hue = newHue
                         saturation = newSaturation
-                        brightness = newBrightness
                         updateFromHsv()
                     },
                 )
+                Row(
+                    Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(24.dp).background(Color(pickerColor))
+                            .border(1.dp, MaterialTheme.colorScheme.outline),
+                    )
+                    Text(String.format(Locale.ROOT, "#%08X", pickerColor))
+                }
                 Text("الشفافية")
-                Slider(
+                ColorGradientSlider(
                     value = alpha,
+                    startColor = Color(pickerColor).copy(alpha = 0f),
+                    endColor = Color(pickerColor).copy(alpha = 1f),
+                    checkerboard = true,
                     onValueChange = {
                         alpha = it
                         updateFromHsv()
                     },
-                    valueRange = 0f..1f,
+                )
+                Text("السطوع")
+                ColorGradientSlider(
+                    value = brightness,
+                    startColor = Color.Black,
+                    endColor = Color(
+                        android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, 1f)),
+                    ),
+                    onValueChange = {
+                        brightness = it
+                        updateFromHsv()
+                    },
                 )
             }
         },
@@ -635,32 +954,66 @@ private fun ReaderColorPickerDialog(
 }
 
 @Composable
+private fun ColorGradientSlider(
+    value: Float,
+    startColor: Color,
+    endColor: Color,
+    onValueChange: (Float) -> Unit,
+    checkerboard: Boolean = false,
+) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Box(Modifier.fillMaxWidth().height(40.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(20.dp)) {
+                if (checkerboard) {
+                    val cell = 5.dp.toPx()
+                    val columns = kotlin.math.ceil(size.width / cell).toInt()
+                    val rows = kotlin.math.ceil(size.height / cell).toInt()
+                    for (row in 0 until rows) {
+                        for (column in 0 until columns) {
+                            drawRect(
+                                if ((row + column) % 2 == 0) Color.White else Color.LightGray,
+                                topLeft = Offset(column * cell, row * cell),
+                                size = androidx.compose.ui.geometry.Size(
+                                    minOf(cell, size.width - column * cell),
+                                    minOf(cell, size.height - row * cell),
+                                ),
+                            )
+                        }
+                    }
+                }
+                drawRect(Brush.horizontalGradient(listOf(startColor, endColor)))
+            }
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White,
+                    activeTrackColor = Color.Transparent,
+                    inactiveTrackColor = Color.Transparent,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
 private fun HueColorWheel(
     hue: Float,
     saturation: Float,
     brightness: Float,
-    onColorChanged: (Float, Float, Float) -> Unit,
+    onColorChanged: (Float, Float) -> Unit,
 ) {
-    val density = LocalDensity.current
     val updateAtPosition: (Offset, Float, Float) -> Unit = { position, width, height ->
         val center = Offset(width / 2f, height / 2f)
         val dx = position.x - center.x
         val dy = position.y - center.y
         val distance = kotlin.math.sqrt(dx * dx + dy * dy)
-        val radius = minOf(width, height) * 0.4f
-        val ringWidth = minOf(width, height) * 0.085f
-        val innerRadius = radius - ringWidth * 0.65f - 8.dp.value * density.density
-        when {
-            distance <= innerRadius -> onColorChanged(
-                hue,
-                ((dx / innerRadius + 1f) / 2f).coerceIn(0f, 1f),
-                ((1f - dy / innerRadius) / 2f).coerceIn(0f, 1f),
-            )
-            distance in (radius - ringWidth / 2f)..(radius + ringWidth / 2f) -> {
-                val angle = Math.toDegrees(kotlin.math.atan2(dy, dx).toDouble())
-                onColorChanged(((angle + 360.0) % 360.0).toFloat(), saturation, brightness)
-            }
-        }
+        val radius = minOf(width, height) * 0.47f
+        val angle = Math.toDegrees(kotlin.math.atan2(dy, dx).toDouble())
+        onColorChanged(
+            ((360.0 - angle) % 360.0).toFloat(),
+            (distance / radius).coerceIn(0f, 1f),
+        )
     }
     val latestUpdateAtPosition = rememberUpdatedState(updateAtPosition)
 
@@ -687,71 +1040,57 @@ private fun HueColorWheel(
                     }
                 },
         ) {
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val radius = minOf(size.width, size.height) * 0.4f
-        val ringWidth = minOf(size.width, size.height) * 0.085f
-        val innerRadius = radius - ringWidth * 0.65f - 8.dp.toPx()
-        val hueColors = listOf(
-            Color.Red,
-            Color.Yellow,
-            Color.Green,
-            Color.Cyan,
-            Color.Blue,
-            Color.Magenta,
-            Color.Red,
-        )
-        drawCircle(
-            brush = Brush.sweepGradient(hueColors, center),
-            radius = radius,
-            center = center,
-            style = Stroke(width = ringWidth),
-        )
-
-        val hueColor = Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
-        val selectionPath = Path().apply {
-            addOval(
-                Rect(
-                    center.x - innerRadius,
-                    center.y - innerRadius,
-                    center.x + innerRadius,
-                    center.y + innerRadius,
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = minOf(size.width, size.height) * 0.47f
+            drawCircle(
+                brush = Brush.sweepGradient(
+                    listOf(
+                        Color.Red, Color.Magenta, Color.Blue, Color.Cyan,
+                        Color.Green, Color.Yellow, Color.Red,
+                    ),
+                    center,
                 ),
+                radius = radius,
+                center = center,
             )
-        }
-        clipPath(selectionPath) {
-            drawCircle(hueColor, innerRadius, center)
-            drawRect(
-                brush = Brush.horizontalGradient(
+            drawCircle(
+                brush = Brush.radialGradient(
                     listOf(Color.White, Color.Transparent),
-                    startX = center.x - innerRadius,
-                    endX = center.x + innerRadius,
+                    center = center,
+                    radius = radius,
                 ),
+                radius = radius,
+                center = center,
             )
-            drawRect(
-                brush = Brush.verticalGradient(
-                    listOf(Color.Transparent, Color.Black),
-                    startY = center.y - innerRadius,
-                    endY = center.y + innerRadius,
-                ),
+            drawCircle(Color.Black.copy(alpha = 1f - brightness), radius, center)
+            val angle = Math.toRadians(-hue.toDouble())
+            val indicator = Offset(
+                center.x + kotlin.math.cos(angle).toFloat() * radius * saturation,
+                center.y + kotlin.math.sin(angle).toFloat() * radius * saturation,
             )
-        }
-
-        val hueAngle = Math.toRadians(hue.toDouble())
-        val hueIndicator = Offset(
-            center.x + kotlin.math.cos(hueAngle).toFloat() * radius,
-            center.y + kotlin.math.sin(hueAngle).toFloat() * radius,
-        )
-        drawCircle(Color.White, ringWidth * 0.34f, hueIndicator)
-        drawCircle(hueColor, ringWidth * 0.23f, hueIndicator)
-
-        val valueIndicator = Offset(
-            center.x + (saturation * 2f - 1f) * innerRadius,
-            center.y + (1f - brightness * 2f) * innerRadius,
-        )
-        drawCircle(Color.White, 12.dp.toPx(), valueIndicator)
-        drawCircle(Color.Black, 10.dp.toPx(), valueIndicator)
+            drawCircle(Color.Black, 9.dp.toPx(), indicator)
+            drawCircle(Color.White, 8.dp.toPx(), indicator)
+            drawCircle(
+                Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))),
+                5.dp.toPx(),
+                indicator,
+            )
         }
     }
+}
+
+private fun backgroundContrastFilter(contrast: Float): ColorFilter {
+    val offset = 127.5f * (1f - contrast)
+    return ColorFilter.colorMatrix(
+        ColorMatrix(
+            floatArrayOf(
+                contrast, 0f, 0f, 0f, offset,
+                0f, contrast, 0f, 0f, offset,
+                0f, 0f, contrast, 0f, offset,
+                0f, 0f, 0f, 1f, 0f,
+            ),
+        ),
+    )
 }
 
 private fun colorToHsv(color: Int): FloatArray =
@@ -804,55 +1143,84 @@ private fun PrayerSettingsCard(
     onSequentialGroupSelected: (String, Int) -> Unit,
     onFixedPsalmToggled: (String, String) -> Unit,
     onResetPsalms: () -> Unit,
+    onApplyToAll: () -> Unit,
     onPickTime: (String) -> Unit,
 ) {
     var sliderValue by remember(preference.volume) { mutableFloatStateOf(preference.volume) }
     var countValue by remember(preference.psalmCount) { mutableFloatStateOf(preference.psalmCount.toFloat()) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
+            TextButton(
+                onClick = onExpanded,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text(prayer.title, style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = { onPickTime(preference.time) }) {
-                        Text("موعد التنبيه: ${preference.time}")
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(if (expanded) "−" else "+")
+                    Text(
+                        prayer.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Start,
+                    )
                 }
-                Switch(
-                    checked = preference.enabled,
-                    onCheckedChange = { onAlarmEnabled(prayer.key, it) },
-                )
-            }
-            Text("مستوى صوت التنبيه: ${(sliderValue * 100).toInt()}٪")
-            Slider(
-                value = sliderValue,
-                onValueChange = { sliderValue = it },
-                onValueChangeFinished = { onVolumeChanged(prayer.key, sliderValue) },
-                valueRange = 0f..1f,
-            )
-            TextButton(onClick = onPickSound) {
-                Text(if (preference.soundUri == null) "اختيار صوت التنبيه (الافتراضي)" else "تغيير صوت التنبيه")
-            }
-            HorizontalDivider()
-            TextButton(onClick = onExpanded) {
-                Text(if (expanded) "إخفاء إعدادات المزامير" else "إعدادات المزامير")
             }
             if (expanded) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        TextButton(onClick = { onPickTime(preference.time) }) {
+                            Text("موعد التنبيه: ${preference.time}")
+                        }
+                    }
+                    Switch(
+                        checked = preference.enabled,
+                        onCheckedChange = { onAlarmEnabled(prayer.key, it) },
+                    )
+                }
+                Text("مستوى صوت التنبيه: ${(sliderValue * 100).toInt()}٪")
+                Slider(
+                    value = sliderValue,
+                    onValueChange = {
+                        sliderValue = it
+                        onVolumeChanged(prayer.key, it)
+                    },
+                    valueRange = 0f..1f,
+                )
+                TextButton(onClick = onPickSound) {
+                    Text(if (preference.soundUri == null) "اختيار صوت التنبيه (الافتراضي)" else "تغيير صوت التنبيه")
+                }
+                HorizontalDivider()
+                Text("إعدادات المزامير", style = MaterialTheme.typography.titleSmall)
                 PsalmSettings(
                     prayer = prayer,
                     preference = preference,
                     psalms = psalms,
                     countValue = countValue,
-                    onCountValueChanged = { countValue = it },
+                    onCountValueChanged = {
+                        countValue = it
+                        onPsalmCountChanged(prayer.key, it.toInt())
+                    },
                     onCountChangeFinished = { onPsalmCountChanged(prayer.key, countValue.toInt()) },
                     onPsalmModeChanged = onPsalmModeChanged,
                     onSequentialGroupSelected = onSequentialGroupSelected,
                     onFixedPsalmToggled = onFixedPsalmToggled,
                     onResetPsalms = onResetPsalms,
                 )
+                HorizontalDivider()
+                Text(
+                    "تطبيق الصوت ومستواه وتفعيل التنبيه واختيارات المزامير على باقي الصلوات، " +
+                        "دون تغيير المواعيد أو المجموعة الحالية.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(onClick = onApplyToAll) {
+                    Text("تطبيق على الكل")
+                }
             }
         }
     }
